@@ -1,5 +1,7 @@
 # Savanna Engine
 
+> **Note:** This is an amateur engineering project. We are not HPC professionals and make no competitive claims. We built a simulation, the performance surprised us, and we share the numbers because they might be useful. We are certain there are errors — if you find one, please open an issue. That is the point of open source. GPL v3.
+
 **Ultra-Scale Spatial Lattice Engine — 14.6 GCUPS on Apple M5 Max**
 
 An ultra-scale spatial computation engine running on Apple Metal, featuring lock-free, atomic-free parallel entity updates (census uses atomics for population counters).
