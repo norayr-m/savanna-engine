@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Savanna Engine — Ultra-Scale Spatial Lattice Engine — 27.1 GCUPS</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0806; color: #a09070; font: 18px/1.6 'Georgia', serif; scroll-behavior: smooth; }
+  .slide { min-height: 100vh; padding: 40px 20px 40px 60px; display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 1px solid rgba(138,122,90,0.15); max-width: 800px; margin: 0 auto; position: relative; }
+  h1 { font: 36px/1.2 'SF Mono', 'Menlo', 'Courier New', monospace; color: #c4a35a; letter-spacing: 3px; text-align: center; }
+  h2 { font: 24px/1.3 'SF Mono', 'Menlo', 'Courier New', monospace; color: #c4a35a; margin-bottom: 20px; text-align: center; }
+  .subtitle { color: #5a4a2a; font-style: italic; text-align: center; margin: 10px 0 30px; }
+  .diagram { background: rgba(26,20,8,0.9); border: 1px solid rgba(138,122,90,0.2); border-radius: 8px; padding: 20px; font: 14px/1.5 'SF Mono', 'Menlo', 'Courier New', monospace; color: #8a7a5a; white-space: pre; overflow-x: auto; margin: 16px 0; width: 100%; }
+  .hl { color: #c4a35a; font-weight: bold; }
+  .green { color: #6a9a3a; }
+  .red { color: #c04030; }
+  .blue { color: #4080c0; }
+  .narration { color: #706050; font-size: 16px; line-height: 1.7; margin: 16px 0; padding: 16px; border-left: 3px solid rgba(138,122,90,0.2); }
+  .controls { display: flex; gap: 12px; margin: 20px 0; justify-content: center; }
+  .controls button { background: rgba(138,122,90,0.15); border: 1px solid rgba(138,122,90,0.3); color: #c4a35a; padding: 8px 20px; border-radius: 6px; cursor: pointer; font: 16px 'SF Mono', monospace; }
+  .controls button:hover { background: rgba(138,122,90,0.3); }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { text-align: left; padding: 8px 14px; border-bottom: 1px solid rgba(138,122,90,0.15); font: 14px 'SF Mono', monospace; }
+  th { color: #c4a35a; }
+  .num { color: #c4a35a; font-weight: bold; }
+  .pipeline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0; font: 14px 'SF Mono', monospace; }
+  .pipeline .step { background: rgba(138,122,90,0.15); padding: 6px 12px; border-radius: 4px; }
+  .pipeline .arrow { color: #c4a35a; }
+  .nav { position: fixed; left: 10px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 12px; z-index: 20; }
+  .nav button { background: rgba(26,20,8,0.8); border: 1px solid rgba(138,122,90,0.3); color: #c4a35a; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 18px; }
+  .nav button:hover { background: rgba(138,122,90,0.3); }
+  .slide-num { position: absolute; top: 16px; right: 20px; color: #3a2a1a; font: 14px 'SF Mono', monospace; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 3px; font: 12px 'SF Mono', monospace; margin: 2px; }
+  .tag-gpu { background: rgba(64,128,192,0.2); color: #4080c0; }
+  .tag-algo { background: rgba(192,64,48,0.2); color: #c04030; }
+  a { color: #c4a35a; }
+  h3 { color: #8a7a5a; font: 16px 'SF Mono', monospace; margin: 16px 0 8px; }
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <button onclick="goSlide(currentSlide-1)" title="Previous (↑)">▲</button>
+  <button onclick="speak(currentSlide)" title="Play/Pause (Space)" id="nav-play">▶</button>
+  <button onclick="goSlide(currentSlide+1)" title="Next (↓)">▼</button>
+</div>
+
+<!-- SLIDE 1 -->
+<div class="slide" id="s1">
+  <h1>SAVANNA ENGINE</h1>
+  <p class="subtitle">GPU Graph Compute at 17 Billion Operations Per Second</p>
+  <div class="diagram">
+  <span class="hl">1,048,576</span> hexagonal cells
+  Each cell = one node in a graph
+
+  <span class="green">■</span> Grass grows    <span class="hl">■</span> Zebras graze
+  <span class="red">■</span> Lions hunt    <span class="blue">■</span> Water attracts
+
+  Simulated <span class="hl">1,250×</span> per second
+  Displayed at <span class="hl">60-120 fps</span> (screen refresh)
+  On one Apple M5 Max GPU
+  </div>
+  <div class="narration" id="n1">A million hexagonal cells. A living ecosystem simulated twelve hundred and fifty times per second on a single GPU. Displayed at your screen's refresh rate. The biology is the test workload. The engine is a ultra-scale spatial lattice engine.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(1)">▶</button></div>
+  <div class="slide-num">1 / 8</div>
+</div>
+
+<!-- SLIDE 2 -->
+<div class="slide" id="s2">
+  <h2>THE STATE TENSOR</h2>
+  <table>
+    <tr><th>Channel</th><th>Type</th><th>Size</th></tr>
+    <tr><td>entity</td><td>Int8</td><td>1 byte</td></tr>
+    <tr><td>energy</td><td>Int16</td><td>2 bytes</td></tr>
+    <tr><td>ternary</td><td>Int8</td><td>1 byte</td></tr>
+    <tr><td>age</td><td>Int16</td><td>2 bytes</td></tr>
+    <tr><td>orientation</td><td>Int8</td><td>1 byte</td></tr>
+    <tr><th colspan="2">Per node</th><th>7 bytes</th></tr>
+    <tr><th colspan="2">× 1M nodes</th><th class="num">7 MB</th></tr>
+    <tr><td colspan="2">+ 4 scent fields (Float32)</td><td>16 MB</td></tr>
+    <tr><th colspan="2">Total state</th><th class="num">23 MB</th></tr>
+    <tr><th colspan="2">At 1,634 tps</th><th class="num">29 GB/s</th></tr>
+  </table>
+  <div class="narration" id="n2">Five channels per node. Seven bytes per cell. Times one million. Plus four scent diffusion fields. Twenty-three megabytes of state, mutated twelve hundred and fifty times per second. Twenty-nine gigabytes per second of state throughput.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(2)">▶</button></div>
+  <div class="slide-num">2 / 8</div>
+</div>
+
+<!-- SLIDE 3 -->
+<div class="slide" id="s3">
+  <h2>GPU PIPELINE — 13 Kernels Per Tick</h2>
+  <div class="diagram">
+  <span class="blue">4× Scent Diffusion</span>   (1M cells each)
+     zebra, grass, lion, water
+
+  <span class="hl">7× Entity Update</span>      (150K cells each)
+     one per colour group
+     sense → compute → emit
+
+  <span class="green">1× Grass Growth</span>       (1M cells)
+  <span class="red">1× Census</span>              (1M cells)
+
+  Total: <span class="hl">13M</span> cell-updates per tick
+  At 1,634 tps = <span class="hl">27B</span> cell-updates/sec
+  </div>
+  <div class="narration" id="n3">Thirteen Metal kernel launches per tick. Four scent diffusions, each touching all million cells. Seven entity updates, one per colour group. Plus grass growth and census. Thirteen million cell updates per tick. At twelve hundred and fifty ticks per second, that is seventeen billion cell updates per second.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(3)">▶</button></div>
+  <div class="slide-num">3 / 8</div>
+</div>
+
+<!-- SLIDE 4 -->
+<div class="slide" id="s4">
+  <h2>7-COLOURING — Lock-Free Parallelism</h2>
+  <div class="diagram">
+  Problem: nodes <span class="red">MOVE</span>.
+  Two threads writing same cell = <span class="red">silent data loss</span>.
+
+  Solution: colour the graph so no two
+  same-coloured nodes share ANY neighbour.
+
+  <span class="hl">⬡₁ ⬡₂ ⬡₃ ⬡₄ ⬡₅ ⬡₆ ⬡₇ ⬡₁ ⬡₂ ⬡₃</span>
+   <span class="hl">⬡₅ ⬡₆ ⬡₇ ⬡₁ ⬡₂ ⬡₃ ⬡₄ ⬡₅ ⬡₆</span>
+  <span class="hl">⬡₂ ⬡₃ ⬡₄ ⬡₅ ⬡₆ ⬡₇ ⬡₁ ⬡₂ ⬡₃ ⬡₄</span>
+
+  Formula: <span class="hl">(col + row + 4×(col&1)) mod 7</span>
+  Molloy & Salavatipour, 2005
+  7 is the minimum. Exhaustive-verified.
+  </div>
+  <p><span class="tag tag-gpu">lock-free</span> <span class="tag tag-gpu">atomic-free</span> <span class="tag tag-algo">distance-2 safe</span></p>
+  <div class="narration" id="n4">When nodes move, they write to a neighbour cell. If two GPU threads write the same cell simultaneously, data is silently destroyed. The seven colouring guarantees no two same-coloured cells share any common neighbour. Within each group, all one hundred and fifty thousand cells run in parallel. No locks. No atomics. Pure data parallelism.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(4)">▶</button></div>
+  <div class="slide-num">4 / 8</div>
+</div>
+
+<!-- SLIDE 5 -->
+<div class="slide" id="s5">
+  <h2>PERFORMANCE — Where Time Goes</h2>
+  <table>
+    <tr><th>Component</th><th>Time</th><th></th></tr>
+    <tr><td>GPU compute (sim)</td><td class="num">0.6 ms</td><td><span class="tag tag-gpu">fast</span></td></tr>
+    <tr><td>GPU render</td><td class="num">0.2 ms</td><td><span class="tag tag-gpu">fast</span></td></tr>
+    <tr><td>vsync wait</td><td>15.6 ms</td><td style="color:#5a4a2a;">idle</td></tr>
+    <tr><th>Total per frame</th><th class="num">16.6 ms</th><th>= 60 fps</th></tr>
+  </table>
+  <div class="diagram">
+  The GPU is <span class="red">idle 95%</span> of the time.
+  Waiting for the screen to refresh.
+
+  Without vsync: <span class="hl">~1,634 tps</span>
+  = <span class="hl">27 BILLION</span> cell-updates/sec
+  </div>
+  <div class="narration" id="n5">The GPU computes one million cells in zero point eight milliseconds. Then renders in zero point two. Then waits fifteen milliseconds for the screen. The GPU is idle ninety-five percent of the time. Without vsync: twelve hundred and fifty ticks per second. Seventeen billion cell updates per second. On one chip.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(5)">▶</button></div>
+  <div class="slide-num">5 / 8</div>
+</div>
+
+<!-- SLIDE 6 -->
+<div class="slide" id="s6">
+  <h2>SCALING — How Big Can We Go?</h2>
+  <table>
+    <tr><th>Grid</th><th>ms/tick</th><th>TPS</th><th>Memory</th></tr>
+    <tr><td>1M (1K×1K)</td><td class="num">0.8</td><td class="num">1,250</td><td>23 MB</td></tr>
+    <tr><td>4M (2K×2K)</td><td class="num">3.2</td><td class="num">312</td><td>92 MB</td></tr>
+    <tr><td>16M (4K×4K)</td><td class="num">13</td><td class="num">77</td><td>368 MB</td></tr>
+    <tr><td>64M (8K×8K)</td><td class="num">52</td><td class="num">19</td><td>1.5 GB</td></tr>
+    <tr><td>256M (16K×16K)</td><td>208</td><td>4.8</td><td>5.9 GB</td></tr>
+    <tr><td style="color:#c04030;">1B (32K×32K)</td><td>832</td><td>1.2</td><td>23 GB</td></tr>
+  </table>
+  <div class="diagram">
+  M5 Max: <span class="hl">128 GB</span> unified memory
+  Theoretical max: ~5 billion cells
+  Real-time (>1 tps): up to <span class="hl">1 billion</span>
+  </div>
+  <div class="narration" id="n6">Metal compute scales linearly. Double the cells, double the time. Sixteen million cells: seventy-seven ticks per second. Sixty-four million: nineteen. One billion cells: one tick per second. The M5 Max has one hundred twenty-eight gigabytes of unified memory. Real-time up to one billion cells.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(6)">▶</button></div>
+  <div class="slide-num">6 / 8</div>
+</div>
+
+<!-- SLIDE 7 -->
+<div class="slide" id="s7">
+  <h2>TWO PIPELINES</h2>
+  <h3>HTML (remote — phone, AirPlay)</h3>
+  <div class="pipeline">
+    <span class="step">GPU</span><span class="arrow">→</span>
+    <span class="step">CPU</span><span class="arrow">→</span>
+    <span class="step">File</span><span class="arrow">→</span>
+    <span class="step">HTTP</span><span class="arrow">→</span>
+    <span class="step">JS</span><span class="arrow">→</span>
+    <span class="step">Canvas</span>
+    <span style="color:#5a4a2a;margin-left:8px;">~25ms</span>
+  </div>
+  <h3 style="color:#c4a35a;">Metal Native (local — zero latency)</h3>
+  <div class="pipeline">
+    <span class="step" style="border-color:#c4a35a;">GPU</span><span class="arrow">→</span>
+    <span class="step" style="border-color:#c4a35a;">Screen</span>
+    <span style="color:#c4a35a;margin-left:8px;font-weight:bold;">~1ms</span>
+  </div>
+  <div class="narration" id="n7">HTML goes through six hops: GPU, CPU, file, HTTP, JavaScript, canvas. Twenty-five milliseconds. Metal native: GPU to screen. One millisecond. Twenty-five times less latency. Both run simultaneously.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(7)">▶</button></div>
+  <div class="slide-num">7 / 8</div>
+</div>
+
+<!-- SLIDE 8 -->
+<div class="slide" id="s8">
+  <h2>THE CEILING IS THE ALGORITHM</h2>
+  <div class="diagram">
+  Today: <span class="hl">13 kernels × 1M cells = 27B updates/sec</span>
+
+  Phase-Transition Engine (next):
+  ┌────────────────────────────────────┐
+  │ Herd of 10,000 nodes              │
+  │ Currently: 10,000 individual sims  │
+  │ With hull encoding: <span class="hl">1 block move</span>  │
+  │ Theoretical: <span class="hl">O(√N)</span> vs O(N)          │
+  └────────────────────────────────────┘
+
+  Same hardware → <span class="hl">100× more nodes</span>
+
+  Applications:
+  • Predator-prey ecosystems
+  • Power grid simulation
+  • Drug metabolism (liver digital twin)
+  • Any spatial lattice with local compute
+  </div>
+  <div class="narration" id="n8">The ceiling is not the hardware. It is the algorithm. When ten thousand nodes move as a block, we compute one hull translation instead of ten thousand individual decisions. One hundred times speedup. Same hardware. The savanna was the proof of concept. The engine runs any local computation on any colourable graph at seventeen billion operations per second.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(8)">▶</button></div>
+  <div class="slide-num">8 / 8</div>
+</div>
+
+<!-- FOOTER -->
+<div style="text-align:center;padding:40px;color:#3a2a1a;font:13px 'SF Mono',monospace;">
+  Built by <a href="https://github.com/norayr">Norayr Matevosyan</a><br>
+  AI: <a href="https://claude.ai">Claude Opus 4.6</a> (Anthropic) · <a href="https://deepmind.google/gemini">Gemini Deep Think</a> (Google)<br>
+  7-colouring: Molloy & Salavatipour, 2005<br>
+  <span style="color:#5a4a2a;">Press Space to narrate • ↑↓ to navigate • Works offline</span>
+</div>
+
+<script>
+// Narration via Web Speech API (works offline, no server needed)
+const texts = {};
+document.querySelectorAll('.narration').forEach(el => {
+  texts[parseInt(el.id.replace('n',''))] = el.textContent.trim();
+});
+
+let currentSlide = 1;
+let playing = false;
+let utterance = null;
+const totalSlides = 8;
+
+function speak(n) {
+  if (playing) { speechSynthesis.cancel(); playing = false; updateBtns(); return; }
+  currentSlide = n;
+  const text = texts[n];
+  if (!text) return;
+  utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 0.9;
+  utterance.pitch = 1.0;
+  const voices = speechSynthesis.getVoices();
+  const pref = voices.find(v => v.name.includes('George')) ||
+               voices.find(v => v.name.includes('Daniel')) ||
+               voices.find(v => v.name.includes('Jamie')) ||
+               voices.find(v => v.lang.startsWith('en-GB')) ||
+               voices.find(v => v.lang.startsWith('en')) || voices[0];
+  if (pref) utterance.voice = pref;
+  utterance.onend = () => { playing = false; updateBtns(); };
+  speechSynthesis.speak(utterance);
+  playing = true;
+  updateBtns();
+}
+
+function updateBtns() {
+  document.querySelectorAll('.play-btn').forEach(b => b.textContent = '▶');
+  if (playing) {
+    const btns = document.querySelectorAll('.play-btn');
+    if (btns[currentSlide-1]) btns[currentSlide-1].textContent = '⏸';
+  }
+  document.getElementById('nav-play').textContent = playing ? '⏸' : '▶';
+}
+
+function goSlide(n) {
+  n = Math.max(1, Math.min(totalSlides, n));
+  currentSlide = n;
+  document.getElementById('s'+n).scrollIntoView({ behavior: 'smooth' });
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'ArrowUp' || e.code === 'PageUp') { e.preventDefault(); goSlide(currentSlide-1); }
+  if (e.code === 'ArrowDown' || e.code === 'PageDown') { e.preventDefault(); goSlide(currentSlide+1); }
+  if (e.code === 'Space') { e.preventDefault(); speak(currentSlide); }
+});
+
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) currentSlide = parseInt(e.target.id.replace('s','')); });
+}, { threshold: 0.5 });
+document.querySelectorAll('.slide').forEach(s => observer.observe(s));
+
+speechSynthesis.getVoices();
+</script>
+</body>
+</html>

@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Savanna — Live Metal Renderer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1408; overflow: hidden; }
+  canvas { display: block; image-rendering: pixelated; }
+  #hud {
+    position: fixed; top: 0; left: 0; right: 0;
+    color: #a09070; font: 14px/1 'SF Mono', 'Menlo', monospace;
+    user-select: none;
+    background: rgba(26,20,8,0.8); padding: 8px 16px;
+    display: flex; align-items: center; gap: 16px;
+    z-index: 10;
+  }
+  #hud .val { color: #c4a35a; font-weight: bold; }
+  #hud .title { font-size: 16px; letter-spacing: 2px; color: #c4a35a; }
+  #hud .dim { color: #5a4a2a; font-size: 13px; }
+  #hud-phase-box {
+    position: fixed; top: 0; right: 0; z-index: 11;
+    padding: 8px 16px; font: bold 14px/1 'SF Mono', 'Menlo', monospace;
+    background: rgba(26,20,8,0.8); min-width: 60px; text-align: center;
+  }
+  #hud-phase-box.day { color: #e8c050; }
+  #hud-phase-box.night { color: #6090d0; }
+  #bottombar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    color: #5a4a2a; font: 12px/1 'SF Mono', 'Menlo', monospace;
+    background: rgba(26,20,8,0.7); padding: 6px 16px;
+    display: flex; gap: 16px; z-index: 10; user-select: none;
+  }
+  #bottombar span { cursor: default; }
+  #bottombar .key { color: #c4a35a; }
+
+  /* DJ Mixer Panel */
+  #mixer {
+    position: fixed; top: 24px; right: 24px;
+    color: #a09070; font: 16px/1.4 'SF Mono', 'Menlo', monospace;
+    background: rgba(26,20,8,0.92); padding: 20px 24px; border-radius: 10px;
+    border: 1px solid rgba(138,122,90,0.2);
+    width: 320px; max-height: 90vh; overflow-y: auto;
+    display: none;
+  }
+  #mixer.show { display: block; }
+  #mixer .mx-title { font-size: 22px; color: #c4a35a; letter-spacing: 2px; margin-bottom: 12px; }
+  #mixer .mx-group { margin-bottom: 14px; border-bottom: 1px solid rgba(138,122,90,0.1); padding-bottom: 10px; }
+  #mixer .mx-label { font-size: 13px; color: #8a7a5a; display: flex; justify-content: space-between; }
+  #mixer .mx-val { color: #c4a35a; font-weight: bold; font-size: 15px; }
+  #mixer input[type=range] {
+    -webkit-appearance: none; width: 100%; height: 6px; margin: 6px 0;
+    background: #2a2418; border-radius: 3px; outline: none;
+  }
+  #mixer input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px;
+    background: #c4a35a; border-radius: 50%; cursor: pointer;
+    box-shadow: 0 0 8px rgba(196,163,90,0.4);
+  }
+  #mixer .mx-section { color: #6a5a3a; font-size: 14px; margin: 10px 0 6px; letter-spacing: 1px; }
+  #toggle-mixer {
+    position: fixed; top: 24px; right: 24px;
+    background: rgba(26,20,8,0.85); color: #c4a35a; border: 1px solid rgba(138,122,90,0.3);
+    padding: 8px 16px; border-radius: 6px; cursor: pointer;
+    font: 18px 'SF Mono', monospace; z-index: 20;
+  }
+  #stats {
+    position: fixed; top: 30px; right: 0; bottom: 30px; width: 220px;
+    color: #8a7a5a; font: 12px/1.6 'SF Mono', 'Menlo', monospace;
+    background: rgba(26,20,8,0.75); padding: 12px 14px;
+    overflow-y: auto; z-index: 9; user-select: none;
+  }
+  #stats .st-title { color: #c4a35a; font-size: 13px; letter-spacing: 1px; margin: 8px 0 4px; }
+  #stats .st-val { color: #c4a35a; font-weight: bold; }
+  #stats .st-pos { color: #6a9a3a; }
+  #stats .st-neg { color: #c04030; }
+  #stats .st-row { display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <span class="title">SAVANNA</span>
+  <span class="dim">d<span class="val" id="hud-day">0</span> y<span class="val" id="hud-year">0</span> t<span class="val" id="hud-tick">0</span></span>
+  <span style="color:#6a9a3a;cursor:pointer;" onclick="jumpToEntity(1)">&#x2B22; <span class="val" id="hud-grass">0</span></span>
+  <span style="color:#d0ccc4;cursor:pointer;" onclick="jumpToEntity(2)">&#x2B22; <span class="val" id="hud-zebra">0</span></span>
+  <span style="color:#c04030;cursor:pointer;" onclick="jumpToEntity(3)">&#x2B22; <span class="val" id="hud-lion">0</span></span>
+  <span class="dim"><span class="val" id="hud-fps">0</span>fps <span class="val" id="hud-speed-factor">1x</span></span>
+  <span class="dim" id="hud-telemetry" style="color:#4a3a1a;font-size:11px;"></span>
+  <span id="hud-speed" style="display:none;"></span>
+</div>
+<div id="hud-phase-box" class="day">DAY</div>
+<div id="stats">
+  <div class="st-title">POPULATION</div>
+  <div class="st-row"><span>Grass</span> <span class="st-val" id="st-grass">—</span></div>
+  <div class="st-row"><span>Zebra</span> <span class="st-val" id="st-zebra">—</span></div>
+  <div class="st-row"><span>Lion</span> <span class="st-val" id="st-lion">—</span></div>
+  <div class="st-row"><span>Z:L ratio</span> <span class="st-val" id="st-ratio">—</span></div>
+
+  <div class="st-title">RATES /10t</div>
+  <div class="st-row"><span>Grass Δ</span> <span id="st-dg">—</span></div>
+  <div class="st-row"><span>Zebra Δ</span> <span id="st-dz">—</span></div>
+  <div class="st-row"><span>Lion Δ</span> <span id="st-dl">—</span></div>
+
+  <div class="st-title">COVERAGE</div>
+  <div class="st-row"><span>Grass %</span> <span class="st-val" id="st-gpct">—</span></div>
+  <div class="st-row"><span>Energy</span> <span class="st-val" id="st-energy">—</span></div>
+
+  <div class="st-title">COMPUTE</div>
+  <div class="st-row"><span>Sim TPS</span> <span class="st-val" id="st-tps">—</span></div>
+  <div class="st-row"><span>ms/tick</span> <span class="st-val" id="st-ms">—</span></div>
+  <div class="st-row"><span>Speed</span> <span class="st-val" id="st-speed">—</span></div>
+  <div class="st-row"><span>Nodes</span> <span class="st-val" id="st-nodes">—</span></div>
+  <div class="st-row"><span>Colors</span> <span class="st-val" id="st-colors">—</span></div>
+
+  <div class="st-title">TIME</div>
+  <div class="st-row"><span>Tick</span> <span class="st-val" id="st-tick">—</span></div>
+  <div class="st-row"><span>Day</span> <span class="st-val" id="st-day">—</span></div>
+  <div class="st-row"><span>Year</span> <span class="st-val" id="st-year">—</span></div>
+</div>
+<div id="bottombar">
+  <span><span class="key">scroll</span> zoom</span>
+  <span><span class="key">click</span> in</span>
+  <span><span class="key">dblclick</span> out</span>
+  <span><span class="key">space</span> fit</span>
+  <span><span class="key">L</span> lion</span>
+  <span><span class="key">Z</span> zebra</span>
+  <span><span class="key">T</span> faster</span>
+  <span><span class="key">G</span> slower</span>
+  <span><span class="key">S</span> stats</span>
+  <span><span class="key">M</span> mixer</span>
+  <span><span class="key">N</span> nuke</span>
+  <span style="margin-left:auto;"><span class="key" style="cursor:pointer;" onclick="window.open('/about.html','_blank')">?</span> about</span>
+</div>
+<button id="toggle-mixer" onclick="document.getElementById('mixer').classList.toggle('show'); this.style.display='none'">🎛 MIX</button>
+<div id="mixer">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div class="mx-title">🎛 MIXER</div>
+    <span style="cursor:pointer;font-size:24px;color:#5a4a2a;" onclick="this.parentElement.parentElement.classList.remove('show');document.getElementById('toggle-mixer').style.display='block'">✕</span>
+  </div>
+
+  <div class="mx-section">⚡ ENERGY</div>
+  <div class="mx-group">
+    <div class="mx-label">Food Energy <span class="mx-val" id="v-food">20</span> <span style="color:#4a3a1a;font-size:11px;">bio:20</span></div>
+    <input type="range" min="5" max="60" value="20" id="s-food" oninput="updateParam('food',this.value)">
+  </div>
+  <div class="mx-group">
+    <div class="mx-label">Kill Energy <span class="mx-val" id="v-kill">120</span> <span style="color:#4a3a1a;font-size:11px;">bio:120</span></div>
+    <input type="range" min="20" max="250" value="120" id="s-kill" oninput="updateParam('kill',this.value)">
+  </div>
+  <div class="mx-group">
+    <div class="mx-label">Move Z <span class="mx-val" id="v-movez">2</span> <span style="color:#4a3a1a;font-size:11px;">bio:2</span></div>
+    <input type="range" min="0" max="10" value="2" id="s-movez" oninput="updateParam('movez',this.value)">
+  </div>
+  <div class="mx-group">
+    <div class="mx-label">Move L <span class="mx-val" id="v-movel">1</span> <span style="color:#4a3a1a;font-size:11px;">bio:1</span></div>
+    <input type="range" min="0" max="10" value="1" id="s-movel" oninput="updateParam('movel',this.value)">
+  </div>
+  <div class="mx-group">
+    <div class="mx-label">Idle <span class="mx-val" id="v-idle">1/12h</span> <span style="color:#4a3a1a;font-size:11px;">bio:1/12h</span></div>
+    <input type="range" min="1" max="8" value="2" id="s-idle" oninput="updateParam('idle',this.value);document.getElementById('v-idle').textContent='1/'+this.value*6+'h'">
+  </div>
+
+  <div class="mx-section">🌱 GROWTH</div>
+  <div class="mx-group">
+    <div class="mx-label">Grass Rate ‰ <span class="mx-val" id="v-grow">8</span> <span style="color:#4a3a1a;font-size:11px;">bio:8</span></div>
+    <input type="range" min="1" max="50" value="8" id="s-grow" oninput="updateParam('grow',this.value)">
+  </div>
+  <div class="mx-group">
+    <div class="mx-label">Grass Life <span class="mx-val" id="v-grassage">1yr</span> <span style="color:#4a3a1a;font-size:11px;">bio:1yr</span></div>
+    <input type="range" min="200" max="6000" value="1460" step="100" id="s-grassage" oninput="updateParam('grassage',this.value);document.getElementById('v-grassage').textContent=(this.value/1460).toFixed(1)+'yr'">
+  </div>
+  <div class="mx-group">
+    <div class="mx-label">Spontaneous ‰ <span class="mx-val" id="v-spont">5</span> <span style="color:#4a3a1a;font-size:11px;">bio:5</span></div>
+    <input type="range" min="0" max="20" value="5" id="s-spont" oninput="updateParam('spont',this.value)">
+  </div>
+
+  <div class="mx-section">🔄 REPRODUCTION</div>
+  <div class="mx-group">
+    <div class="mx-label">Repro Energy <span class="mx-val" id="v-repro">120</span> <span style="color:#4a3a1a;font-size:11px;">bio:120</span></div>
+    <input type="range" min="50" max="250" value="120" id="s-repro" oninput="updateParam('repro',this.value)">
+  </div>
+  <div class="mx-group">
+    <div class="mx-label">Z Cooldown <span class="mx-val" id="v-cdz">2yr</span> <span style="color:#4a3a1a;font-size:11px;">bio:2yr</span></div>
+    <input type="range" min="200" max="6000" value="2920" step="100" id="s-cdz" oninput="updateParam('cdz',this.value);document.getElementById('v-cdz').textContent=(this.value/1460).toFixed(1)+'yr'">
+  </div>
+  <div class="mx-group">
+    <div class="mx-label">L Cooldown <span class="mx-val" id="v-cdl">2yr</span> <span style="color:#4a3a1a;font-size:11px;">bio:2yr</span></div>
+    <input type="range" min="200" max="6000" value="2920" step="100" id="s-cdl" oninput="updateParam('cdl',this.value);document.getElementById('v-cdl').textContent=(this.value/1460).toFixed(1)+'yr'">
+  </div>
+  <div class="mx-group">
+    <div class="mx-label">Birth Energy <span class="mx-val" id="v-birth">50</span> <span style="color:#4a3a1a;font-size:11px;">bio:50</span></div>
+    <input type="range" min="20" max="150" value="50" id="s-birth" oninput="updateParam('birth',this.value)">
+  </div>
+  <div class="mx-group">
+    <div class="mx-label">Thermo Loss <span class="mx-val" id="v-thermo">20</span> <span style="color:#4a3a1a;font-size:11px;">bio:20</span></div>
+    <input type="range" min="0" max="50" value="20" id="s-thermo" oninput="updateParam('thermo',this.value)">
+  </div>
+
+  <div class="mx-section">👃 SCENT</div>
+  <div class="mx-group">
+    <div class="mx-label">Decay <span class="mx-val" id="v-decay">0.95</span> <span style="color:#4a3a1a;font-size:11px;">def:0.95</span></div>
+    <input type="range" min="50" max="99" value="95" id="s-decay" oninput="updateParam('decay',this.value/100);document.getElementById('v-decay').textContent=(this.value/100).toFixed(2)">
+  </div>
+  <div class="mx-group">
+    <div class="mx-label">Spread <span class="mx-val" id="v-spread">0.85</span> <span style="color:#4a3a1a;font-size:11px;">def:0.85</span></div>
+    <input type="range" min="20" max="99" value="85" id="s-spread" oninput="updateParam('spread',this.value/100);document.getElementById('v-spread').textContent=(this.value/100).toFixed(2)">
+  </div>
+
+  <div class="mx-section">⏱ SPEED</div>
+  <div class="mx-group">
+    <div class="mx-label">Time Scale <span class="mx-val" id="v-speed2">1x</span></div>
+    <input type="range" min="0" max="4" value="0" id="s-speed2" oninput="updateSpeed(this.value)">
+  </div>
+
+  <div style="margin-top:12px;text-align:center;">
+    <span style="cursor:pointer;color:#c04030;font-size:14px;" onclick="if(confirm('Reset simulation?'))fetch('/reset_sim')">↻ RESET SIM</span>
+  </div>
+
+  <div class="mx-section">⏱ SPACETIME SCALE</div>
+  <div style="font-size:11px;color:#5a4a2a;line-height:1.6;">
+    <div>1 tick = 6 hours &nbsp;|&nbsp; 4 ticks = 1 day</div>
+    <div>1,460 ticks = 1 year</div>
+    <div style="margin-top:6px;">Time scales with zoom: <span style="color:#c4a35a;">t ~ 1/x<sup>1.5</sup></span></div>
+    <div>Zoom in → slow motion (watch a hunt)</div>
+    <div>Zoom out → fast forward (watch evolution)</div>
+    <div style="margin-top:6px;color:#4a3a1a;">Lévy superdiffusion scaling (α=1.5)</div>
+  </div>
+
+  <div class="mx-section" style="margin-top:14px;">🧬 METABOLICS</div>
+  <div style="font-size:11px;color:#5a4a2a;line-height:1.6;">
+    <div><span style="color:#d0ccc4;">Zebra</span> active:<span class="mx-val">4</span>/t resting:<span class="mx-val">2</span>/t panic:<span class="mx-val">7</span>/t</div>
+    <div><span style="color:#c04030;">Lion</span> active:<span class="mx-val">3</span>/t resting:<span class="mx-val">1</span>/t torpor:<span class="mx-val">0</span>/t</div>
+    <div style="margin-top:4px;">Ternary: <span style="color:#c4a35a;">0→+1→-1→0</span> (firewall)</div>
+    <div>Kill interrupt: -1→+1 on prey contact</div>
+  </div>
+
+  <div class="mx-section" style="margin-top:14px;">📐 GRID</div>
+  <div style="font-size:11px;color:#5a4a2a;line-height:1.6;" id="mx-grid-info">
+    <div>1024×1024 = 1,048,576 nodes</div>
+    <div>7-coloring: (col+row+4·(col&1))%7</div>
+    <div>Distance-2 safe (Molloy-Salavatipour)</div>
+    <div id="mx-sim-stats"></div>
+  </div>
+</div>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+let W, H;
+
+const COLORS = [
+  [26, 20, 8],     // empty: dark earth
+  [58, 74, 24],    // grass: green
+  [232, 228, 220], // zebra: white
+  [180, 40, 30],   // lion: RED
+  [40, 90, 160],   // water: blue
+];
+const NIGHT_COLORS = [
+  [22, 18, 8],
+  [48, 64, 22],
+  [220, 216, 210],
+  [150, 35, 25],   // lion night: darker red
+  [30, 70, 130],   // water night: darker blue
+];
+
+let GRID_W = 1024, GRID_H = 1024;
+let zoom = 1.0, panX = 0, panY = 0;
+let dragging = false, dragMoved = false;
+let dragStartX, dragStartY, panStartX, panStartY;
+let lastTick = -1, isDay = true;
+let entityData = null;
+
+// Time aggregation: T cycles through levels. Each level = 2× spatial coarsening
+let timeLevel = 0;  // 0=1x, 1=2x, 2=4x, 3=8x, 4=16x
+const TIME_LABELS = ['1x', '2x', '4x', '8x', '16x'];
+const BLOCK_SIZES = [1, 2, 4, 8, 16];  // cells per block side
+
+// Offscreen pixel buffer
+let offscreen = document.createElement('canvas');
+offscreen.width = 1024; offscreen.height = 1024;
+const offCtx = offscreen.getContext('2d');
+let pixBuf = null;
+
+// Time: 1 tick = 6 hours, 4 ticks/day, 1460 ticks/year
+const TICKS_PER_DAY = 4;
+const TICKS_PER_YEAR = 1460;
+
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+// ── Fetch ───────────────────────────────────────────────
+async function fetchState() {
+  try {
+    const resp = await fetch('/savanna_state.bin?t=' + Date.now() + Math.random(), { cache: 'no-store' });
+    if (!resp.ok) return false;
+    const buf = await resp.arrayBuffer();
+    const header = new Uint32Array(buf, 0, 4);
+    GRID_W = header[0]; GRID_H = header[1];
+    const tick = header[2];
+    isDay = header[3] === 1;
+    if (tick === lastTick) return false;
+    lastTick = tick;
+    entityData = new Int8Array(buf, 16);
+
+    // HUD
+    document.getElementById('hud-tick').textContent = tick.toLocaleString();
+    document.getElementById('hud-day').textContent = Math.floor(tick / TICKS_PER_DAY).toLocaleString();
+    document.getElementById('hud-year').textContent = (tick / TICKS_PER_YEAR).toFixed(1);
+    const phaseEl = document.getElementById('hud-phase-box');
+    phaseEl.textContent = isDay ? 'DAY' : 'NIGHT';
+    phaseEl.className = isDay ? 'day' : 'night';
+    document.getElementById('hud-speed').textContent = isDay ? '▶▶▶' : '▶';
+
+    let grass = 0, zebra = 0, lion = 0;
+    for (let i = 0; i < entityData.length; i++) {
+      const e = entityData[i];
+      if (e === 1) grass++; else if (e === 2) zebra++; else if (e === 3) lion++;
+    }
+    document.getElementById('hud-grass').textContent = grass.toLocaleString();
+    document.getElementById('hud-zebra').textContent = zebra.toLocaleString();
+    document.getElementById('hud-lion').textContent = lion.toLocaleString();
+
+    // Build pixel buffer — always full resolution. Speed is in tick batching, not blur.
+    const pal = isDay ? COLORS : NIGHT_COLORS;
+    if (!pixBuf || pixBuf.width !== GRID_W) pixBuf = ctx.createImageData(GRID_W, GRID_H);
+    const px = pixBuf.data;
+    for (let i = 0; i < entityData.length; i++) {
+      const c = pal[entityData[i]] || pal[0];
+      const p = i * 4;
+      px[p] = c[0]; px[p+1] = c[1]; px[p+2] = c[2]; px[p+3] = 255;
+    }
+    if (offscreen.width !== GRID_W || offscreen.height !== GRID_H) {
+      offscreen.width = GRID_W; offscreen.height = GRID_H;
+    }
+    offCtx.putImageData(pixBuf, 0, 0);
+    return true;
+  } catch (e) { return false; }
+}
+
+// ── Render ──────────────────────────────────────────────
+function render() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // Smooth day/night transition — lerp toward target
+  if (!window._bgR) { window._bgR = 26; window._bgG = 20; window._bgB = 8; }
+  const tgtR = isDay ? 26 : 22, tgtG = isDay ? 20 : 18, tgtB = isDay ? 8 : 8;
+  window._bgR += (tgtR - window._bgR) * 0.08;
+  window._bgG += (tgtG - window._bgG) * 0.08;
+  window._bgB += (tgtB - window._bgB) * 0.08;
+  ctx.fillStyle = `rgb(${Math.round(window._bgR)},${Math.round(window._bgG)},${Math.round(window._bgB)})`;
+  ctx.fillRect(0, 0, W, H);
+  if (!pixBuf) return;
+
+  ctx.save();
+  ctx.translate(panX, panY);
+  ctx.scale(zoom, zoom);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(offscreen, 0, 0);
+  ctx.restore();
+}
+
+// ── Mixer controls ──────────────────────────────────────
+function updateParam(name, val) {
+  document.getElementById('v-' + name).textContent = val;
+  fetch('/set_param?name=' + name + '&value=' + val);
+}
+function updateSpeed(level) {
+  const labels = ['1x','2x','4x','8x','16x'];
+  document.getElementById('v-speed2').textContent = labels[level];
+  timeLevel = parseInt(level);
+  fetch('/set_speed?level=' + level);
+}
+// Toggle mixer with M key
+document.addEventListener('keydown', e => {
+  if (e.code === 'KeyM' && !e.target.matches('input,textarea')) {
+    const mx = document.getElementById('mixer');
+    const btn = document.getElementById('toggle-mixer');
+    mx.classList.toggle('show');
+    btn.style.display = mx.classList.contains('show') ? 'none' : 'block';
+  }
+});
+
+// ── Zoom ────────────────────────────────────────────────
+function minZoom() { return Math.min(W / GRID_W, H / GRID_H) * 0.1; }  // allow 10x zoom out
+function clampZoom() {
+  zoom = Math.max(minZoom(), Math.min(30, zoom));
+  // Spacetime zoom: t ~ 1/x^1.5 (Lévy superdiffusion scaling — Gemini Q7)
+  // Not x² (Gaussian diffusion) because predators use Lévy flights (α≈1.5).
+  // Reference: zoom=1.0 (1 pixel = 1 cell) = real time (1x)
+  const timeSpeed = Math.max(1, Math.round(1 / Math.pow(zoom, 1.5)));
+  const sleepMs = Math.max(5, Math.min(100, Math.round(30 * Math.pow(zoom, 1.5))));  // cap 100ms = 10fps min
+  fetch('/set_speed?level=' + timeSpeed + '&sleep=' + sleepMs);
+  // Display
+  if (zoom >= 1) {
+    const slowdown = zoom * zoom;
+    document.getElementById('hud-speed-factor').textContent =
+      slowdown > 1.05 ? (1/slowdown).toFixed(2) + 'x' : '1x';
+  } else {
+    document.getElementById('hud-speed-factor').textContent = timeSpeed + 'x';
+  }
+}
+function clampPan() {
+  const gw = GRID_W * zoom, gh = GRID_H * zoom;
+  const m = 0.1;
+  if (gw < W * 1.2) { panX = (W - gw) / 2; }
+  if (gh < H * 1.2) { panY = (H - gh) / 2; }
+}
+
+// ── Input ───────────────────────────────────────────────
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const mx = e.clientX, my = e.clientY;
+  if (e.ctrlKey) {
+    const zf = 1 - e.deltaY * 0.01;
+    panX = mx - (mx - panX) * zf; panY = my - (my - panY) * zf;
+    zoom *= zf;
+  } else {
+    // Vertical scroll = zoom (smooth), horizontal = pan
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      panX -= e.deltaX;
+    } else {
+      const zf = 1 - e.deltaY * 0.003;
+      panX = mx - (mx - panX) * zf; panY = my - (my - panY) * zf;
+      zoom *= zf;
+    }
+  }
+  clampZoom(); clampPan();
+}, { passive: false });
+
+canvas.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
+canvas.addEventListener('gesturechange', e => {
+  e.preventDefault();
+  const zf = e.scale;
+  panX = W/2 - (W/2 - panX) * zf; panY = H/2 - (H/2 - panY) * zf;
+  zoom *= zf; clampZoom(); clampPan();
+}, { passive: false });
+
+canvas.addEventListener('mousedown', e => {
+  dragging = true; dragMoved = false;
+  dragStartX = e.clientX; dragStartY = e.clientY;
+  panStartX = panX; panStartY = panY;
+  canvas.style.cursor = 'grabbing';
+});
+canvas.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  if (Math.abs(e.clientX - dragStartX) > 3 || Math.abs(e.clientY - dragStartY) > 3) dragMoved = true;
+  panX = panStartX + (e.clientX - dragStartX);
+  panY = panStartY + (e.clientY - dragStartY);
+});
+canvas.addEventListener('mouseup', () => { dragging = false; canvas.style.cursor = 'grab'; });
+canvas.style.cursor = 'grab';
+
+let clickTimer = null;
+canvas.addEventListener('click', e => {
+  if (dragMoved) return;
+  if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; return; }
+  clickTimer = setTimeout(() => {
+    const zf = 2.0, mx = e.clientX, my = e.clientY;
+    panX = mx - (mx - panX) * zf; panY = my - (my - panY) * zf;
+    zoom *= zf; clampZoom(); clickTimer = null;
+  }, 250);
+});
+canvas.addEventListener('dblclick', e => {
+  e.preventDefault();
+  if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+  const zf = 0.5, mx = e.clientX, my = e.clientY;
+  panX = mx - (mx - panX) * zf; panY = my - (my - panY) * zf;
+  zoom *= zf; clampZoom(); clampPan();
+});
+// Jump to random entity of given type
+function jumpToEntity(type) {
+  if (!entityData) return;
+  // Collect all positions of this type
+  const positions = [];
+  for (let i = 0; i < entityData.length; i++) {
+    if (entityData[i] === type) positions.push(i);
+  }
+  if (positions.length === 0) return;
+  // Pick random one
+  const idx = positions[Math.floor(Math.random() * positions.length)];
+  const col = idx % GRID_W;
+  const row = Math.floor(idx / GRID_W);
+  // Zoom to 8x and center on this cell
+  zoom = 8;
+  panX = W / 2 - col * zoom;
+  panY = H / 2 - row * zoom;
+  clampZoom();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    zoom = Math.min(W / GRID_W, H / GRID_H) * 0.9;
+    panX = (W - GRID_W * zoom) / 2;
+    panY = (H - GRID_H * zoom) / 2;
+    clampZoom();  // update spacetime scale
+  }
+  if (e.code === 'KeyS') {
+    document.getElementById('stats').style.display =
+      document.getElementById('stats').style.display === 'none' ? '' : 'none';
+  }
+  if (e.code === 'KeyL') jumpToEntity(3);  // lion
+  if (e.code === 'KeyZ') jumpToEntity(2);  // zebra
+  if (e.code === 'KeyN') {
+    if (confirm('NUKE — reset simulation?')) {
+      fetch('/reset_sim').then(() => { lastTick = -1; });
+    }
+  }
+  if (e.code === 'KeyT' && !e.shiftKey) {
+    timeLevel = (timeLevel + 1) % TIME_LABELS.length;  // wraps back to 1x
+    document.getElementById('hud-speed-factor').textContent = TIME_LABELS[timeLevel];
+    pixBuf = null;
+    fetch('/set_speed?level=' + timeLevel);
+  }
+  if ((e.code === 'KeyT' && e.shiftKey) || e.code === 'KeyG') {
+    timeLevel = Math.max(0, timeLevel - 1);
+    document.getElementById('hud-speed-factor').textContent = TIME_LABELS[timeLevel];
+    pixBuf = null;
+    fetch('/set_speed?level=' + timeLevel);
+  }
+});
+
+// ── Loop ────────────────────────────────────────────────
+let frames = 0, lastFpsTime = performance.now();
+async function loop() {
+  await fetchState();
+  render();
+  frames++;
+  const now = performance.now();
+  if (now - lastFpsTime > 1000) {
+    document.getElementById('hud-fps').textContent = frames;
+    frames = 0; lastFpsTime = now;
+    // Fetch sim telemetry → stats panel
+    fetch('/telemetry').then(r => r.json()).then(t => {
+      document.getElementById('hud-telemetry').textContent = `sim:${t.tps}tps ${t.ms}ms/t`;
+      // Population
+      document.getElementById('st-grass').textContent = t.grass.toLocaleString();
+      document.getElementById('st-zebra').textContent = t.zebra.toLocaleString();
+      document.getElementById('st-lion').textContent = t.lion.toLocaleString();
+      document.getElementById('st-ratio').textContent = t.ratio + ':1';
+      // Rates
+      const fmt = (v) => { const s = v > 0 ? '+'+v : ''+v; return v > 0 ? `<span class="st-pos">${s}</span>` : v < 0 ? `<span class="st-neg">${s}</span>` : s; };
+      document.getElementById('st-dg').innerHTML = fmt(t.dG);
+      document.getElementById('st-dz').innerHTML = fmt(t.dZ);
+      document.getElementById('st-dl').innerHTML = fmt(t.dL);
+      // Coverage
+      document.getElementById('st-gpct').textContent = t.grassPct + '%';
+      document.getElementById('st-energy').textContent = t.energy.toLocaleString();
+      // Compute
+      document.getElementById('st-tps').textContent = t.tps;
+      document.getElementById('st-ms').textContent = t.ms;
+      document.getElementById('st-speed').textContent = t.speed + 'x';
+      document.getElementById('st-nodes').textContent = (t.nodes/1000).toFixed(0) + 'K';
+      document.getElementById('st-colors').textContent = t.colors;
+      // Time
+      document.getElementById('st-tick').textContent = t.tick.toLocaleString();
+      document.getElementById('st-day').textContent = t.day.toLocaleString();
+      document.getElementById('st-year').textContent = t.year;
+    }).catch(() => {});
+  }
+  requestAnimationFrame(loop);
+}
+
+// Init: fit to screen
+zoom = Math.min(W / GRID_W, H / GRID_H) * 0.9;
+panX = (W - GRID_W * zoom) / 2;
+panY = (H - GRID_H * zoom) / 2;
+clampZoom();  // set initial spacetime scale
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

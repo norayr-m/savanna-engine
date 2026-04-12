@@ -1,0 +1,70 @@
+============================================================
+SAVANNA ENGINE — 10-RUN STATISTICAL BENCHMARK
+Machine: Apple M5 Max, 128 GB unified memory
+Date: 2026-04-11T22:59:45Z
+============================================================
+
+Grid: 1024×1024 = 1M cells, 100 ticks/run, 10 runs
+  run 1: 0.60ms/tick 1675tps 22.8B cu/s
+  run 2: 0.65ms/tick 1547tps 21.1B cu/s
+  run 3: 0.58ms/tick 1733tps 23.6B cu/s
+  run 4: 0.60ms/tick 1680tps 22.9B cu/s
+  run 5: 0.62ms/tick 1619tps 22.1B cu/s
+  run 6: 0.64ms/tick 1551tps 21.2B cu/s
+  run 7: 0.58ms/tick 1709tps 23.3B cu/s
+  run 8: 0.59ms/tick 1690tps 23.0B cu/s
+  run 9: 0.66ms/tick 1520tps 20.7B cu/s
+  run 10: 0.62ms/tick 1617tps 22.0B cu/s
+  ──────────────────────────────────────
+  ms/tick:  0.61 ± 0.03  [min: 0.58, max: 0.66]
+  tps:      1634 ± 71  [min: 1520, max: 1733]
+  cu/s:     22.3B ± 1.0B  [min: 20.7B, max: 23.6B]
+
+Grid: 2048×2048 = 4M cells, 50 ticks/run, 10 runs
+  run 1: 2.03ms/tick 492tps 26.8B cu/s
+  run 2: 2.04ms/tick 489tps 26.7B cu/s
+  run 3: 2.05ms/tick 487tps 26.6B cu/s
+  run 4: 2.03ms/tick 492tps 26.8B cu/s
+  run 5: 2.04ms/tick 491tps 26.8B cu/s
+  run 6: 2.04ms/tick 490tps 26.8B cu/s
+  run 7: 2.04ms/tick 489tps 26.7B cu/s
+  run 8: 2.02ms/tick 494tps 27.0B cu/s
+  run 9: 2.05ms/tick 487tps 26.6B cu/s
+  run 10: 2.05ms/tick 488tps 26.6B cu/s
+  ──────────────────────────────────────
+  ms/tick:  2.04 ± 0.01  [min: 2.02, max: 2.05]
+  tps:      490 ± 2  [min: 487, max: 494]
+  cu/s:     26.7B ± 0.1B  [min: 26.6B, max: 27.0B]
+
+Grid: 4096×4096 = 16M cells, 20 ticks/run, 10 runs
+  run 1: 8.04ms/tick 124tps 27.1B cu/s
+  run 2: 8.03ms/tick 124tps 27.2B cu/s
+  run 3: 8.02ms/tick 124tps 27.2B cu/s
+  run 4: 8.01ms/tick 124tps 27.2B cu/s
+  run 5: 8.04ms/tick 124tps 27.1B cu/s
+  run 6: 8.11ms/tick 123tps 26.9B cu/s
+  run 7: 8.08ms/tick 123tps 27.0B cu/s
+  run 8: 8.12ms/tick 123tps 26.8B cu/s
+  run 9: 8.02ms/tick 124tps 27.2B cu/s
+  run 10: 8.07ms/tick 123tps 27.0B cu/s
+  ──────────────────────────────────────
+  ms/tick:  8.05 ± 0.04  [min: 8.01, max: 8.12]
+  tps:      124 ± 0  [min: 123, max: 124]
+  cu/s:     27.1B ± 0.1B  [min: 26.8B, max: 27.2B]
+
+Grid: 8192×8192 = 67M cells, 10 ticks/run, 10 runs
+  run 1: 33.49ms/tick 29tps 26.0B cu/s
+  run 2: 33.63ms/tick 29tps 25.9B cu/s
+  run 3: 33.13ms/tick 30tps 26.3B cu/s
+  run 4: 33.39ms/tick 29tps 26.1B cu/s
+  run 5: 33.26ms/tick 30tps 26.2B cu/s
+  run 6: 33.18ms/tick 30tps 26.3B cu/s
+  run 7: 34.01ms/tick 29tps 25.6B cu/s
+  run 8: 34.21ms/tick 29tps 25.5B cu/s
+  run 9: 33.52ms/tick 29tps 26.0B cu/s
+  run 10: 33.07ms/tick 30tps 26.4B cu/s
+  ──────────────────────────────────────
+  ms/tick:  33.49 ± 0.36  [min: 33.07, max: 34.21]
+  tps:      29 ± 0  [min: 29, max: 30]
+  cu/s:     26.1B ± 0.3B  [min: 25.5B, max: 26.4B]
+
