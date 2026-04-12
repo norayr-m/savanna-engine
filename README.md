@@ -1,10 +1,10 @@
 # Savanna Engine
 
-**Ultra-Scale Spatial Lattice Engine — 27.1 GCUPS on Apple M5 Max**
+**Ultra-Scale Spatial Lattice Engine — 25.0 GCUPS on Apple M5 Max**
 
-A lock-free, atomic-free parallel spatial computation engine running on Apple Metal.
+A lock-free (entity updates are atomic-free; census uses atomics) parallel entity updates on a spatial computation engine running on Apple Metal.
 
-**27.1 GCUPS** (27.1 billion cell-updates per second) measured at 16M cells on Apple M5 Max with 128 GB unified memory. 10-run validated, <1% standard deviation. Pure GPU compute: 0.61 ms/tick at 1M cells (1,634 tps). See [BENCHMARK.md](BENCHMARK.md) for full methodology — what is measured, what is excluded, and how to reproduce.
+**25.0 GCUPS** (25.0 billion cell-updates per second) measured at 16M cells on Apple M5 Max with 128 GB unified memory. 10-run validated, low variance (0.5–5% coefficient of variation). Pure GPU compute: 0.61 ms/tick at 1M cells (1,634 tps). See [BENCHMARK.md](BENCHMARK.md) for full methodology — what is measured, what is excluded, and how to reproduce.
 
 > The biology is the test workload. The engine is a spatial lattice compute machine.
 
@@ -22,8 +22,8 @@ The simulation models a predator-prey ecosystem (grass → zebra → lion), but 
 |--------|-------|
 | Grid | 1,048,576 nodes (1024×1024 hex) |
 | Channels | 5 per node + 4 scent fields = 23 MB state |
-| Compute | 0.6 ms per tick (13 kernel dispatches) |
-| Throughput | **27 billion** cell-updates/sec |
+| Compute | 0.6 ms per tick (12 kernel dispatches) |
+| Throughput | **25 billion** cell-updates/sec |
 | Simulation rate | 1,634 tps (GPU compute only) |
 | Display rate | 60-120 fps (vsync) |
 | State bandwidth | 29 GB/sec |
@@ -74,18 +74,40 @@ Zoom out → time accelerates → watch population dynamics.
 ## Quick Start
 
 ```bash
-# Build
-cd SavannaEngine
-swift build
+# 1. Clone and build
+git clone https://github.com/norayr-m/savanna-engine.git
+cd savanna-engine
+swift build -c release
 
-# Run simulation + HTTP server
-python3 /tmp/savanna_server.py &
-# Opens browser to live renderer
-open http://localhost:8765/savanna_live.html
+# 2. Verify the benchmark (runs 10× at 1M, 4M, 16M cells)
+swift run -c release savanna-bench
 
-# Or run CLI only
-.build/debug/savanna-cli
+# 3. Run the simulation
+swift run -c release savanna-cli
 ```
+
+### CLI Options
+
+```bash
+swift run -c release savanna-cli              # default: 1024×1024, 4GB ring buffer
+swift run -c release savanna-cli --grid 2048  # 4M cells
+swift run -c release savanna-cli --ram 16     # 16 GB ring buffer (more playback frames)
+swift run -c release savanna-cli --ram 1      # 1 GB (fits on 8GB machines)
+swift run -c release savanna-cli --bench      # benchmark mode: no file I/O, pure compute
+swift run -c release savanna-cli --ticks 1000 # run exactly 1000 ticks then stop
+```
+
+### Memory Requirements
+
+| Machine | RAM | `--ram` flag | Ring buffer frames |
+|---------|-----|--------------|--------------------|
+| M1 8GB | 8 GB | `--ram 1` | ~1,000 (8 min sim) |
+| M1/M2 16GB | 16 GB | `--ram 4` | ~4,000 (30 min) |
+| M2/M3 Pro 32GB | 32 GB | `--ram 12` | ~12,000 (1.5 hr) |
+| M5 Max 128GB | 128 GB | `--ram 50` | ~50,000 (5.5 hr) |
+
+The simulation itself needs ~23 MB. The rest is ring buffer for recording.
+With `--ram 1`, the engine runs on any Apple Silicon Mac.
 
 ### Controls
 | Key | Action |
@@ -143,7 +165,7 @@ SavannaEngine/
 On a hexagonal grid, each cell has 6 neighbours forming a "flower" of 7 tiles. For movement safety (distance-2 independence), all 7 must execute at different times. The formula `(col + row + 4×(col&1)) mod 7` was found by exhaustive search over all `(a×col + b×row + d×(col&1)) mod 7` candidates. 12 valid formulas exist; this is the simplest.
 
 ### Why Not Atomics?
-GPU atomic operations cost 10-50× more than normal memory writes due to hardware serialisation. With 13 million potential atomic operations per tick eliminated by colouring, the performance gain is ~10-50×. This is the difference between 27 billion ops/sec and ~500 million.
+GPU atomic operations cost 10-50× more than normal memory writes due to hardware serialisation. With 13 million potential atomic operations per tick eliminated by colouring, the performance gain is ~10-50×. This is the difference between 25 billion ops/sec and ~500 million.
 
 ### Unified Memory Advantage
 Apple Silicon's unified memory means CPU and GPU share the same 128GB. No PCIe bus copies. The entity buffer lives in one place — computed by the GPU, read by the CPU for display, without ever moving. On discrete GPU systems (NVIDIA), the same operation requires a 1MB DMA transfer per frame.
@@ -167,7 +189,7 @@ Under the current thermodynamic constraints (Type II satiation, ternary metaboli
 
 **We challenge the theoretical ecology community** to find the parameter basin — or functional response modification — that produces stable oscillations on this discrete hex lattice with asynchronous chromatic Gauss-Seidel updates.
 
-The engine runs at 27.1 GCUPS. The biology is the open problem.
+The engine runs at 25.0 GCUPS. The biology is the open problem.
 
 ## References
 

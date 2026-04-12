@@ -36,7 +36,7 @@ func benchOnce(w: Int, h: Int, ticks: Int) -> (ms: Double, tps: Double, gcups: D
 
     let ms = elapsed / Double(ticks) * 1000.0
     let tps = Double(ticks) / elapsed
-    let gcups = Double(w * h) * 13.0 * tps / 1_000_000_000.0
+    let gcups = Double(w * h) * 12.0 * tps / 1_000_000_000.0
     return (ms, tps, gcups)
 }
 

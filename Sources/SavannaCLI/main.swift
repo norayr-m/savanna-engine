@@ -1,200 +1,184 @@
 import Foundation
+import Metal
 import Savanna
 
-let width = 1024
-let height = 1024
+// ══════════════════════════════════════════════════════════
+// Savanna Engine CLI
+// Usage: savanna-cli [--bench] [--ram 8] [--grid 1024] [--ticks 1000]
+// ══════════════════════════════════════════════════════════
+
+// ── Parse args ───────────────────────────────────────────
+let args = CommandLine.arguments
+func arg(_ name: String, default val: String) -> String {
+    if let i = args.firstIndex(of: "--\(name)"), i + 1 < args.count { return args[i + 1] }
+    return val
+}
+let benchMode = args.contains("--bench")
+let gridSize = Int(arg("grid", default: "1024"))!
+let maxTicks = Int(arg("ticks", default: "0"))!  // 0 = infinite
+let ramGB = Int(arg("ram", default: "4"))!        // GB for ring buffer
+let snapshotPath = "/tmp/savanna_state.bin"
 let dayLength = 10
 let nightLength = 10
-let totalTicks = Int.max  // run forever
-let snapshotPath = "/tmp/savanna_state.bin"
 
-// Time rubber banding: smooth logarithmic arc per day cycle
-// 4 ticks per day (0,1=day  2,3=night). Night is slowest. Dawn/dusk transition smooth.
-// Pattern over a full day (ticks 0-3):
-//   tick 0 (morning):  medium  — dawn, waking up
-//   tick 1 (afternoon): fast   — routine grazing
-//   tick 2 (evening):  medium  — dusk, tension builds
-//   tick 3 (night):    slow    — the hunt
-// But we run many days, so use a continuous sine-like curve over the 4-tick cycle.
-func sleepForTick(_ t: Int) -> UInt32 {
-    let phase = t % 4  // 0,1 = day, 2,3 = night
-    // Sine arc: min at phase 1 (midday), max at phase 3 (midnight)
-    // sleep = base + amplitude * sin(phase * pi/2)
-    let minSleep: Double = 30   // fastest (midday) — still visible, no flicker
-    let maxSleep: Double = 200  // slowest (midnight hunt)
-    let curve = sin(Double(phase) * .pi / 3.0)  // 0→0.87→0.87→0 roughly
-    let sleep = minSleep + (maxSleep - minSleep) * curve
-    return UInt32(sleep)
-}
-// Effective: tick0=30ms, tick1=~180ms, tick2=~180ms, tick3=30ms
-// Day feels like: quick-slow-slow-quick, with the slow part at dusk+night
+let width = gridSize
+let height = gridSize
 
-print("SavannaEngine — Swift + Metal")
-print("Grid: \(width)×\(height) = \(width * height) nodes")
+// ── Banner ───────────────────────────────────────────────
+print()
+print("══════════════════════════════════════════════════════════")
+print("  SAVANNA ENGINE")
+print("══════════════════════════════════════════════════════════")
+
+// System info
+let device = MTLCreateSystemDefaultDevice()!
+print("  GPU:     \(device.name)")
+print("  Grid:    \(width)×\(height) = \(width * height / 1_000_000)M cells")
+print("  State:   \(width * height * 7 / 1_000_000) MB entities + \(width * height * 16 / 1_000_000) MB scent")
+print("  RAM:     \(ramGB) GB ring buffer (\(ramGB * 1_000_000_000 / (width * height)) frames)")
+if benchMode { print("  Mode:    BENCHMARK (no file I/O)") }
+print("══════════════════════════════════════════════════════════")
 print()
 
-// ── Build hex grid ──────────────────────────────────────
-print("Building hex grid...")
+// ── Build grid ───────────────────────────────────────────
+print("  Building hex grid...", terminator: "")
+fflush(stdout)
 let t0 = CFAbsoluteTimeGetCurrent()
 let grid = HexGrid(width: width, height: height)
 let t1 = CFAbsoluteTimeGetCurrent()
-print("  Built in \(String(format: "%.2f", t1 - t0))s")
-print("  Color groups: [\(grid.colorGroups.map { "\($0.count)" }.joined(separator: ", "))]")
+print(" \(String(format: "%.1f", t1 - t0))s")
+print("  7-colouring: [\(grid.colorGroups.map { "\($0.count)" }.joined(separator: ", "))]")
 
-// Verify coloring
-let colorOK = grid.verifyColoring()
-print("  4-coloring valid: \(colorOK)")
-
-// Verify degrees
-var deg6 = 0
-for i in 0..<grid.nodeCount { if grid.degree(of: i) == 6 { deg6 += 1 } }
-print("  Degree-6 nodes: \(deg6)/\(grid.nodeCount)")
-
-// ── Init state ──────────────────────────────────────────
-print("\nInitializing state...")
+// ── Init state ───────────────────────────────────────────
+print("  Initialising state...", terminator: "")
+fflush(stdout)
 var state = SavannaState(width: width, height: height)
 state.randomInit()
 let c0 = state.census()
-print("  Census: grass=\(c0.grass) zebra=\(c0.zebra) lion=\(c0.lion) energy=\(c0.totalEnergy)")
+let t2 = CFAbsoluteTimeGetCurrent()
+print(" \(String(format: "%.1f", t2 - t1))s")
+print("  Census: grass=\(c0.grass) zebra=\(c0.zebra) lion=\(c0.lion)")
 
-// ── Create Metal engine ─────────────────────────────────
-print("\nCreating Metal engine...")
+// ── Metal engine ─────────────────────────────────────────
+print("  Creating Metal engine...", terminator: "")
+fflush(stdout)
 let engine: MetalEngine
 do {
     engine = try MetalEngine(grid: grid, state: state)
-    print("  Metal device: \(engine.device.name)")
 } catch {
-    print("  FATAL: \(error)")
+    print(" FATAL: \(error)")
     exit(1)
 }
+let t3 = CFAbsoluteTimeGetCurrent()
+print(" \(String(format: "%.1f", t3 - t2))s")
 
-// ── Create recorder ────────────────────────────────────
-let recorder = SimRecorder(device: engine.device, nodeCount: width * height, capacity: 50_000)
-if let recorder = recorder {
-    engine.recorder = recorder
-    print("  Recorder: \(recorder.capacity) frames (\(recorder.capacity * width * height / 1_000_000) MB ring)")
-} else {
-    print("  WARNING: Recorder allocation failed")
+// ── Recorder ─────────────────────────────────────────────
+let frameBytes = width * height
+let recorderCapacity = ramGB * 1_000_000_000 / frameBytes
+let recorder = SimRecorder(device: device, nodeCount: frameBytes, capacity: min(recorderCapacity, 200_000))
+if let rec = recorder, !benchMode {
+    engine.recorder = rec
+    print("  Recorder: \(rec.capacity) frames (\(rec.capacity * frameBytes / 1_000_000) MB)")
 }
 
-// Verify initial census matches
-let mc0 = engine.census()
-print("  GPU census: grass=\(mc0.grass) zebra=\(mc0.zebra) lion=\(mc0.lion) energy=\(mc0.totalEnergy)")
-
-// ── Run simulation ──────────────────────────────────────
 print()
-print(String(repeating: "─", count: 80))
-print(String(format: "  %-8s %10s %8s %6s %10s %9s %5s", "TICK", "GRASS", "ZEBRA", "LION", "ENERGY", "ms/tick", "PHASE"))
-print(String(repeating: "─", count: 80))
-print(String(format: "  %-8d %10d %8d %6d %10d %9s %5s", 0, mc0.grass, mc0.zebra, mc0.lion, mc0.totalEnergy, "—", "INIT"))
 
-let tSim0 = CFAbsoluteTimeGetCurrent()
-var prevGrass = 0, prevZebra = 0, prevLion = 0
-var dGrass = 0, dZebra = 0, dLion = 0
+// ── Run ──────────────────────────────────────────────────
+let tickLimit = maxTicks > 0 ? maxTicks : Int.max
+var tickCount = 0
+var totalComputeTime: Double = 0
+let simStart = CFAbsoluteTimeGetCurrent()
+var lastPrint = simStart
 
-for t in 0..<totalTicks {
-    let tickStart = CFAbsoluteTimeGetCurrent()
+// Header
+print("──────────────────────────────────────────────────────────────────────────")
+print(String(format: "  %-8s %9s %7s %5s %9s %9s %9s %6s",
+             "TICK", "GRASS", "ZEBRA", "LION", "ms/tick", "TPS", "GCUPS", "PHASE"))
+print("──────────────────────────────────────────────────────────────────────────")
+
+for t in 0..<tickLimit {
     let cyclePos = t % (dayLength + nightLength)
     let isDay = cyclePos < dayLength
 
+    // Pure compute timing
+    let tickStart = CFAbsoluteTimeGetCurrent()
     engine.tick(tickNumber: UInt32(t), isDay: isDay)
-
-    // Write snapshot for HTML renderer (from ring buffer if recording)
-    if let rec = recorder, rec.frameCount > 0 {
-        rec.writeLiveSnapshot(to: snapshotPath, width: width, height: height, tick: t, isDay: isDay)
-    } else {
-        engine.writeSnapshot(to: snapshotPath, width: width, height: height, tick: t, isDay: isDay)
-    }
-
-    // Spacetime zoom: speed and sleep from HTML zoom level
-    // speed = ticks per frame (fast forward when zoomed out)
-    // sleep = ms per frame (slow motion when zoomed in)
-    var speedMultiplier = 1
-    var sleepMs: UInt32 = 30
-    if let speedStr = try? String(contentsOfFile: "/tmp/savanna_speed.txt").trimmingCharacters(in: .whitespacesAndNewlines),
-       let level = Int(speedStr) {
-        speedMultiplier = max(1, level)  // direct multiplier, not bit shift
-    }
-    if let sleepStr = try? String(contentsOfFile: "/tmp/savanna_sleep.txt").trimmingCharacters(in: .whitespacesAndNewlines),
-       let ms = UInt32(sleepStr) {
-        sleepMs = max(5, min(200, ms))
-    }
-
-    // Fast forward: run extra ticks without writing snapshot
-    for _ in 1..<speedMultiplier {
-        let extraT = t + 1
-        let extraCycle = extraT % (dayLength + nightLength)
-        let extraDay = extraCycle < dayLength
-        engine.tick(tickNumber: UInt32(extraT), isDay: extraDay)
-    }
-
-    // Sleep: slow motion when zoomed in, fast when zoomed out
-    usleep(sleepMs * 1000)
-
-    // Telemetry: write sim stats for HTML overlay
     let tickEnd = CFAbsoluteTimeGetCurrent()
-    let msThisTick = (tickEnd - tickStart) * 1000
-    if (t + 1) % 10 == 0 {
-        let c = engine.census()
-        let tps = 1000.0 / max(0.01, msThisTick)
-        dGrass = c.grass - prevGrass; dZebra = c.zebra - prevZebra; dLion = c.lion - prevLion
-        prevGrass = c.grass; prevZebra = c.zebra; prevLion = c.lion
-        let day = (t + 1) / 4
-        let year = Double(t + 1) / 1460.0
-        let ratio = c.zebra > 0 ? Double(c.zebra) / max(1.0, Double(c.lion)) : 0
-        let grassPct = Double(c.grass) / Double(width * height) * 100
-        let telemetry = """
-        {"tick":\(t+1),"day":\(day),"year":\(String(format:"%.2f",year)),\
-        "ms":\(String(format:"%.2f",msThisTick)),"tps":\(Int(tps)),"speed":\(speedMultiplier),\
-        "grass":\(c.grass),"zebra":\(c.zebra),"lion":\(c.lion),"energy":\(c.totalEnergy),\
-        "dG":\(dGrass),"dZ":\(dZebra),"dL":\(dLion),\
-        "ratio":\(String(format:"%.1f",ratio)),"grassPct":\(String(format:"%.1f",grassPct)),\
-        "nodes":\(width*height),"colors":7}
-        """
-        try? telemetry.write(toFile: "/tmp/savanna_telemetry.json", atomically: true, encoding: .utf8)
-        // Update recorder frame meta with census
+    let tickMs = (tickEnd - tickStart) * 1000.0
+    totalComputeTime += tickMs
+
+    tickCount += 1
+
+    // Snapshot for HTML viewer (skip in bench mode)
+    if !benchMode {
         if let rec = recorder, rec.frameCount > 0 {
-            let slot = (rec.head - 1 + rec.capacity) % rec.capacity
-            rec.frameMeta[slot] = FrameMeta(tick: UInt32(t+1), isDay: isDay,
-                                             grass: UInt32(c.grass), zebra: UInt32(c.zebra), lion: UInt32(c.lion))
+            rec.writeLiveSnapshot(to: snapshotPath, width: width, height: height, tick: t, isDay: isDay)
+        } else {
+            engine.writeSnapshot(to: snapshotPath, width: width, height: height, tick: t, isDay: isDay)
         }
     }
 
-    // Check for archive command
-    if let cmd = try? String(contentsOfFile: "/tmp/savanna_cmd.txt").trimmingCharacters(in: .whitespacesAndNewlines) {
+    // Speed control (skip in bench mode)
+    if !benchMode {
+        var sleepMs: UInt32 = 5
+        if let s = try? String(contentsOfFile: "/tmp/savanna_sleep.txt").trimmingCharacters(in: .whitespacesAndNewlines),
+           let ms = UInt32(s) { sleepMs = max(5, min(200, ms)) }
+        usleep(sleepMs * 1000)
+    }
+
+    // Print stats every 100 ticks (or every 10 in bench mode)
+    let interval = benchMode ? 10 : 100
+    let now = CFAbsoluteTimeGetCurrent()
+    if (t + 1) % interval == 0 || t == 0 {
+        let c = engine.census()
+        let avgMs = totalComputeTime / Double(tickCount)
+        let tps = 1000.0 / avgMs
+        let gcups = Double(width * height) * 12.0 * tps / 1_000_000_000.0
+        let phase = isDay ? "DAY" : "NGT"
+
+        print(String(format: "  %-8d %9d %7d %5d %7.2f ms %7.0f %7.1f B %6s",
+                     t + 1, c.grass, c.zebra, c.lion, avgMs, tps, gcups, phase))
+
+        // Telemetry for HTML stats panel
+        if !benchMode {
+            let telemetry = """
+            {"tick":\(t+1),"day":\((t+1)/4),"year":\(String(format:"%.2f",Double(t+1)/1460.0)),\
+            "ms":\(String(format:"%.2f",avgMs)),"tps":\(Int(tps)),"speed":1,\
+            "grass":\(c.grass),"zebra":\(c.zebra),"lion":\(c.lion),"energy":\(c.totalEnergy),\
+            "dG":0,"dZ":0,"dL":0,\
+            "ratio":\(String(format:"%.1f",c.zebra > 0 ? Double(c.zebra)/max(1,Double(c.lion)) : 0)),\
+            "grassPct":\(String(format:"%.1f",Double(c.grass)/Double(width*height)*100)),\
+            "nodes":\(width*height),"colors":7}
+            """
+            try? telemetry.write(toFile: "/tmp/savanna_telemetry.json", atomically: true, encoding: .utf8)
+        }
+
+        lastPrint = now
+    }
+
+    // Check for commands
+    if !benchMode, let cmd = try? String(contentsOfFile: "/tmp/savanna_cmd.txt").trimmingCharacters(in: .whitespacesAndNewlines), !cmd.isEmpty {
         if cmd.hasPrefix("archive") {
             let path = cmd.replacingOccurrences(of: "archive ", with: "")
             recorder?.archive(to: path, width: width, height: height)
-            try? "".write(toFile: "/tmp/savanna_cmd.txt", atomically: true, encoding: .utf8)
         }
-    }
-
-    // Print every 100 ticks
-    if (t + 1) % 100 == 0 {
-        let c = engine.census()
-        let phase = isDay ? "DAY" : "NGT"
-        print(String(format: "  %-8d %10d %8d %6d %10d %8.2fms %5s", t + 1, c.grass, c.zebra, c.lion, c.totalEnergy, msThisTick, phase))
+        try? "".write(toFile: "/tmp/savanna_cmd.txt", atomically: true, encoding: .utf8)
     }
 }
 
-let tSim1 = CFAbsoluteTimeGetCurrent()
-let simTime = tSim1 - tSim0
-let msPerTick = simTime / Double(totalTicks) * 1000
+// ── Summary ──────────────────────────────────────────────
+let simEnd = CFAbsoluteTimeGetCurrent()
+let wallTime = simEnd - simStart
+let avgMs = totalComputeTime / Double(tickCount)
+let avgTps = 1000.0 / avgMs
+let gcups = Double(width * height) * 12.0 * avgTps / 1_000_000_000.0
 
-let finalCensus = engine.census()
-
-// ── Summary ─────────────────────────────────────────────
+print("──────────────────────────────────────────────────────────────────────────")
 print()
-print(String(repeating: "=", count: 60))
-print("SIMULATION COMPLETE — \(totalTicks) ticks in \(String(format: "%.2f", simTime))s (\(String(format: "%.2f", msPerTick))ms/tick)")
-print("  Grass:  \(mc0.grass) → \(finalCensus.grass) (\(finalCensus.grass - mc0.grass > 0 ? "+" : "")\(finalCensus.grass - mc0.grass))")
-print("  Zebra:  \(mc0.zebra) → \(finalCensus.zebra) (\(finalCensus.zebra - mc0.zebra > 0 ? "+" : "")\(finalCensus.zebra - mc0.zebra))")
-print("  Lion:   \(mc0.lion) → \(finalCensus.lion) (\(finalCensus.lion - mc0.lion > 0 ? "+" : "")\(finalCensus.lion - mc0.lion))")
-print("  Energy: \(mc0.totalEnergy) → \(finalCensus.totalEnergy)")
-print(String(repeating: "=", count: 60))
-
-// ── Step status ─────────────────────────────────────────
+print("  SUMMARY")
+print("  Ticks:     \(tickCount)")
+print("  Wall time: \(String(format: "%.1f", wallTime))s")
+print("  Compute:   \(String(format: "%.2f", avgMs)) ms/tick (GPU only)")
+print("  TPS:       \(Int(avgTps)) (GPU only)")
+print("  GCUPS:     \(String(format: "%.1f", gcups))")
 print()
-print("Phase 1: \(colorOK ? "PASS" : "FAIL") — Hex grid + 4-coloring")
-print("Phase 2: \(finalCensus.grass + finalCensus.zebra + finalCensus.lion > 0 ? "PASS" : "FAIL") — Metal engine running")
-print("Speed:   \(String(format: "%.2f", msPerTick))ms/tick (\(String(format: "%.0f", 1000.0/msPerTick)) fps)")

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Savanna Engine — Ultra-Scale Spatial Lattice Engine — 27.1 GCUPS</title>
+<title>Savanna Engine — Ultra-Scale Spatial Lattice Engine — 25.0 GCUPS</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0a0806; color: #a09070; font: 18px/1.6 'Georgia', serif; scroll-behavior: smooth; }
@@ -102,7 +102,7 @@
   <span class="red">1× Census</span>              (1M cells)
 
   Total: <span class="hl">13M</span> cell-updates per tick
-  At 1,634 tps = <span class="hl">27B</span> cell-updates/sec
+  At 1,634 tps = <span class="hl">25B</span> cell-updates/sec
   </div>
   <div class="narration" id="n3">Thirteen Metal kernel launches per tick. Four scent diffusions, each touching all million cells. Seven entity updates, one per colour group. Plus grass growth and census. Thirteen million cell updates per tick. At twelve hundred and fifty ticks per second, that is seventeen billion cell updates per second.</div>
   <div class="controls"><button class="play-btn" onclick="speak(3)">▶</button></div>
@@ -148,7 +148,7 @@
   Waiting for the screen to refresh.
 
   Without vsync: <span class="hl">~1,634 tps</span>
-  = <span class="hl">27 BILLION</span> cell-updates/sec
+  = <span class="hl">25 BILLION</span> cell-updates/sec
   </div>
   <div class="narration" id="n5">The GPU computes one million cells in zero point eight milliseconds. Then renders in zero point two. Then waits fifteen milliseconds for the screen. The GPU is idle ninety-five percent of the time. Without vsync: twelve hundred and fifty ticks per second. Seventeen billion cell updates per second. On one chip.</div>
   <div class="controls"><button class="play-btn" onclick="speak(5)">▶</button></div>
@@ -205,7 +205,7 @@
 <div class="slide" id="s8">
   <h2>THE CEILING IS THE ALGORITHM</h2>
   <div class="diagram">
-  Today: <span class="hl">13 kernels × 1M cells = 27B updates/sec</span>
+  Today: <span class="hl">13 kernels × 1M cells = 25B updates/sec</span>
 
   Phase-Transition Engine (next):
   ┌────────────────────────────────────┐

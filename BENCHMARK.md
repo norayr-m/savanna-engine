@@ -27,7 +27,7 @@ Each tick = 13 Metal compute kernel dispatches:
 - 1× grass growth (all cells)
 - 1× census (all cells, atomic counters)
 
-**GCUPS** = cells × 13 dispatches × ticks/sec.
+**GCUPS** = cells × 12 dispatches × ticks/sec.
 
 10 runs per grid size. 5-tick warmup per run (eliminates GPU pipeline
 stall on first dispatch). Mean ± standard deviation reported.
@@ -36,14 +36,14 @@ stall on first dispatch). Mean ± standard deviation reported.
 
 | Grid | Cells | ms/tick (mean±std) | TPS (mean±std) | GCUPS (mean±std) |
 |------|-------|--------------------|----------------|------------------|
-| 1024² | 1M | 0.61 ± 0.03 | 1,634 ± 71 | 22.3 ± 1.0 |
-| 2048² | 4M | 2.04 ± 0.01 | 490 ± 2 | 26.7 ± 0.1 |
-| 4096² | 16M | 8.05 ± 0.04 | 124 ± 0 | **27.1 ± 0.1** |
-| 8192² | 67M | 33.49 ± 0.36 | 29 ± 0 | 26.1 ± 0.3 |
+| 1024² | 1M | 0.61 ± 0.03 | 1,634 ± 71 | 20.6 ± 0.9 |
+| 2048² | 4M | 2.04 ± 0.01 | 490 ± 2 | 24.6 ± 0.1 |
+| 4096² | 16M | 8.05 ± 0.04 | 124 ± 0 | **25.0 ± 0.1** |
+| 8192² | 67M | 33.49 ± 0.36 | 29 ± 0 | 24.0 ± 0.3 |
 
 Variance <1% standard deviation at all scales.
 
-Peak throughput: **27.1 GCUPS** at 16M cells (GPU memory bandwidth saturation).
+Peak throughput: **25.0 GCUPS** at 16M cells (GPU memory bandwidth saturation).
 
 ## Scaling
 
