@@ -10,7 +10,7 @@ An ultra-scale spatial computation engine running on Apple Metal, featuring lock
 
 > The biology is the test workload. The engine is a spatial lattice compute machine.
 
-[**→ Interactive Presentation**](index.html) | [**→ Live Demo**](savanna_live.html) | [**→ Architecture**](../SPEC_SimRecorder.md)
+[**→ Interactive Presentation**](index.html) | [**→ About**](about.html) | [**→ Benchmark**](BENCHMARK.md)
 
 ## What This Is
 
