@@ -100,7 +100,7 @@ swift run -c release savanna-bench
 swift run -c release savanna-cli &
 
 # 2. Start web server
-python3 -m http.server 8765 &
+python3 -m http.server 8765 > /dev/null 2>&1 &
 
 # 3. Open browser
 open http://localhost:8765/savanna_live.html
