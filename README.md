@@ -103,6 +103,23 @@ swift run -c release savanna-cli --bench      # benchmark mode: no file I/O, pur
 swift run -c release savanna-cli --ticks 1000 # run exactly 1000 ticks then stop
 ```
 
+### Live HTML Viewer (optional)
+
+The live viewer (`savanna_live.html`) shows the simulation in real-time in your browser. It requires a simple HTTP server:
+
+```bash
+# 1. Start the simulation
+swift run -c release savanna-cli &
+
+# 2. Serve the HTML from the repo directory
+python3 -m http.server 8765 &
+
+# 3. Open in browser
+open http://localhost:8765/savanna_live.html
+```
+
+Controls: scroll to zoom (+ spacetime scaling), click to zoom in, space to fit, S for stats, M for mixer, N to reset.
+
 ### Memory Requirements
 
 | Machine | RAM | `--ram` flag | Ring buffer frames |
