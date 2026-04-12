@@ -11,9 +11,12 @@ struct Stats {
     let mean: Double, std: Double, min: Double, max: Double
     init(_ v: [Double]) {
         let n = Double(v.count)
-        mean = v.reduce(0, +) / n
-        let variance = v.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / n
-        std = sqrt(variance); min = v.min()!; max = v.max()!
+        let m = v.reduce(0, +) / n
+        let variance = v.map { ($0 - m) * ($0 - m) }.reduce(0, +) / n
+        self.mean = m
+        self.std = sqrt(variance)
+        self.min = v.min()!
+        self.max = v.max()!
     }
 }
 
