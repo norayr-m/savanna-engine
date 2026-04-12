@@ -1,0 +1,137 @@
+import Foundation
+import Savanna
+
+// ════════════════════════════════════════════════════════════
+// SAVANNA ENGINE — REPRODUCIBLE BENCHMARK
+// Pure GPU compute time. No file I/O. No rendering. No sleep.
+// ════════════════════════════════════════════════════════════
+
+struct Stats {
+    let mean: Double, std: Double, min: Double, max: Double
+    init(_ v: [Double]) {
+        let n = Double(v.count)
+        mean = v.reduce(0, +) / n
+        let variance = v.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / n
+        std = sqrt(variance); min = v.min()!; max = v.max()!
+    }
+}
+
+func benchOnce(w: Int, h: Int, ticks: Int) -> (ms: Double, tps: Double, gcups: Double) {
+    let grid = HexGrid(width: w, height: h)
+    var state = SavannaState(width: w, height: h)
+    state.randomInit()
+    let engine = try! MetalEngine(grid: grid, state: state)
+
+    // Warmup: 5 ticks (fills GPU pipeline, warms caches)
+    for t in 0..<5 {
+        engine.tick(tickNumber: UInt32(t), isDay: true)
+    }
+
+    // Measure: N ticks of pure compute
+    let t0 = CFAbsoluteTimeGetCurrent()
+    for t in 5..<(5 + ticks) {
+        engine.tick(tickNumber: UInt32(t), isDay: (t % 20) < 10)
+    }
+    let elapsed = CFAbsoluteTimeGetCurrent() - t0
+
+    let ms = elapsed / Double(ticks) * 1000.0
+    let tps = Double(ticks) / elapsed
+    let gcups = Double(w * h) * 13.0 * tps / 1_000_000_000.0
+    return (ms, tps, gcups)
+}
+
+// ── System info ──────────────────────────────────────────
+print("════════════════════════════════════════════════════════════════")
+print("  SAVANNA ENGINE — REPRODUCIBLE BENCHMARK")
+print("  Date:    \(ISO8601DateFormatter().string(from: Date()))")
+
+// Get chip name
+let proc = Process()
+proc.executableURL = URL(fileURLWithPath: "/usr/sbin/sysctl")
+proc.arguments = ["-n", "machdep.cpu.brand_string"]
+let pipe = Pipe()
+proc.standardOutput = pipe
+try? proc.run()
+proc.waitUntilExit()
+let chip = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+    .trimmingCharacters(in: .whitespacesAndNewlines) ?? "unknown"
+print("  Chip:    \(chip)")
+
+let proc2 = Process()
+proc2.executableURL = URL(fileURLWithPath: "/usr/sbin/sysctl")
+proc2.arguments = ["-n", "hw.memsize"]
+let pipe2 = Pipe()
+proc2.standardOutput = pipe2
+try? proc2.run()
+proc2.waitUntilExit()
+let memBytes = UInt64(String(data: pipe2.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+    .trimmingCharacters(in: .whitespacesAndNewlines) ?? "0") ?? 0
+print("  Memory:  \(memBytes / 1_073_741_824) GB unified")
+
+let proc3 = Process()
+proc3.executableURL = URL(fileURLWithPath: "/usr/bin/sw_vers")
+proc3.arguments = ["-productVersion"]
+let pipe3 = Pipe()
+proc3.standardOutput = pipe3
+try? proc3.run()
+proc3.waitUntilExit()
+let osVer = String(data: pipe3.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+    .trimmingCharacters(in: .whitespacesAndNewlines) ?? "unknown"
+print("  macOS:   \(osVer)")
+
+let device = MTLCreateSystemDefaultDevice()!
+print("  GPU:     \(device.name)")
+print("════════════════════════════════════════════════════════════════")
+print()
+
+// ── Configs ──────────────────────────────────────────────
+let runs = 10
+let configs: [(w: Int, h: Int, ticks: Int, label: String)] = [
+    (1024, 1024, 100, "1M"),
+    (2048, 2048, 50,  "4M"),
+    (4096, 4096, 20,  "16M"),
+]
+
+let full = CommandLine.arguments.contains("--full")
+
+print("  \(runs) runs per grid size. 5-tick warmup. Pure GPU compute.")
+print("  Each tick = 13 Metal kernel dispatches (4 scent + 7 entity + grass + census).")
+print("  GCUPS = cells × 13 × tps / 1e9")
+print()
+print("──────────────────────────────────────────────────────────────────────")
+print(String(format: "  %-6s  %16s  %14s  %16s", "GRID", "ms/tick", "TPS", "GCUPS"))
+print("──────────────────────────────────────────────────────────────────────")
+
+func runConfig(w: Int, h: Int, ticks: Int, label: String) {
+    var msAll = [Double](), tpsAll = [Double](), gcupsAll = [Double]()
+    for r in 1...runs {
+        let result = benchOnce(w: w, h: h, ticks: ticks)
+        msAll.append(result.ms)
+        tpsAll.append(result.tps)
+        gcupsAll.append(result.gcups)
+        // Progress dot
+        print(".", terminator: "")
+        fflush(stdout)
+    }
+    let ms = Stats(msAll), tps = Stats(tpsAll), gcups = Stats(gcupsAll)
+    print(String(format: "\r  %-6s  %6.2f ± %4.2f ms  %6.0f ± %4.0f  %6.1f ± %4.1f B    ",
+                 label, ms.mean, ms.std, tps.mean, tps.std, gcups.mean, gcups.std))
+}
+
+for config in configs {
+    runConfig(w: config.w, h: config.h, ticks: config.ticks, label: config.label)
+}
+
+if full {
+    runConfig(w: 8192, h: 8192, ticks: 10, label: "67M")
+}
+
+print("──────────────────────────────────────────────────────────────────────")
+print()
+if !full {
+    print("  (67M cells omitted — takes ~15 min. Run with --full to include.)")
+    print()
+}
+print("  To reproduce: swift run -c release savanna-bench")
+if !full { print("  Full suite:    swift run -c release savanna-bench --full") }
+print()
