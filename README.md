@@ -32,12 +32,14 @@ The simulation models a predator-prey ecosystem (grass → zebra → lion), but 
 
 ### Scaling (linear with cell count)
 
-| Grid Size | Ticks/sec | Real-time? |
-|-----------|-----------|------------|
-| 1M | 1,634 | ✓ |
-| 16M | 77 | ✓ |
-| 64M | 19 | ✓ |
-| 1B | 1.2 | ✓ |
+| Grid Size | Ticks/sec | Notes |
+|-----------|-----------|-------|
+| 1M | 1,634 | interactive (>>60 fps) |
+| 4M | 490 | interactive |
+| 16M | 124 | interactive |
+| 67M | 29 | watchable |
+| 256M | ~7 | slow |
+| 1B | ~1.9 | batch only |
 
 ### Context
 
