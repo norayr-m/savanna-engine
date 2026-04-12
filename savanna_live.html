@@ -213,7 +213,7 @@
   </div>
 
   <div style="margin-top:12px;text-align:center;">
-    <span style="cursor:pointer;color:#c04030;font-size:14px;" onclick="if(confirm('Reset simulation?'))fetch('/reset_sim')">↻ RESET SIM</span>
+    <span style="cursor:pointer;color:#c04030;font-size:14px;" onclick="if(confirm('To reset: pkill -f savanna-cli && swift run -c release savanna-cli &')){}">↻ RESET (see terminal)</span>
   </div>
 
   <div class="mx-section">⏱ SPACETIME SCALE</div>
@@ -502,8 +502,8 @@ document.addEventListener('keydown', e => {
   if (e.code === 'KeyL') jumpToEntity(3);  // lion
   if (e.code === 'KeyZ') jumpToEntity(2);  // zebra
   if (e.code === 'KeyN') {
-    if (confirm('NUKE — reset simulation?')) {
-      fetch('/reset_sim').then(() => { lastTick = -1; });
+    if (confirm('RESET: This will stop the simulation.\nRun these commands to restart:\n\npkill -f savanna-cli\nswift run -c release savanna-cli &')) {
+      lastTick = -1;
     }
   }
   if (e.code === 'KeyT' && !e.shiftKey) {
