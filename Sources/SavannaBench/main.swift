@@ -24,7 +24,7 @@ print("  ───────────────────────�
 func bench(_ w: Int, _ ticks: Int, _ label: String) {
     let grid = HexGrid(width: w, height: w)
     var state = SavannaState(width: w, height: w)
-    state.randomInit()
+    state.randomInit(grid: grid)
     let engine = try! MetalEngine(grid: grid, state: state)
     for t in 0..<5 { engine.tick(tickNumber: UInt32(t), isDay: true) }
     let t0 = CFAbsoluteTimeGetCurrent()
