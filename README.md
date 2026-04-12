@@ -108,22 +108,20 @@ swift run -c release savanna-cli --ticks 1000 # run exactly 1000 ticks then stop
 The live viewer (`savanna_live.html`) shows the simulation in real-time in your browser. It requires a simple HTTP server:
 
 ```bash
-# 1. Start the simulation
-swift run -c release savanna-cli &
+# Start
+python3 -c "
+import subprocess, webbrowser, time
+subprocess.Popen(['swift','run','-c','release','savanna-cli'])
+subprocess.Popen(['python3','-m','http.server','8765'])
+time.sleep(3)
+webbrowser.open('http://localhost:8765/savanna_live.html')
+"
 
-# 2. Serve the HTML from the repo directory
-python3 -m http.server 8765 &
-
-# 3. Open in browser
-open http://localhost:8765/savanna_live.html
+# Stop
+python3 -c "import os; os.system('pkill -f savanna-cli; pkill -f http.server')"
 ```
 
-Controls: scroll to zoom (+ spacetime scaling), click to zoom in, space to fit, S for stats, M for mixer, N to reset.
-
-To stop:
-```bash
-pkill -f savanna-cli; kill %1 %2    # stop sim + server
-```
+Controls: scroll to zoom, click to zoom in, space to fit, S stats, M mixer, N reset.
 
 ### Memory Requirements
 
