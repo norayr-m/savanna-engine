@@ -86,6 +86,10 @@ swift run -c release savanna-bench
 
 # 3. Run the simulation
 swift run -c release savanna-cli
+
+# The interactive presentation is at:
+# https://norayr-m.github.io/savanna-engine/
+# (no server needed — static HTML)
 ```
 
 ### CLI Options
@@ -223,7 +227,8 @@ Every line of code was human-directed and AI-assisted. The architecture decision
 
 ```bash
 # Start
-python3 /tmp/savanna_server.py &    # server + sim (port 8765)
+# Server is optional — for live HTML viewer only (not in repo)
+# swift run -c release savanna-cli    # simulation only
 
 # Stop everything
 pkill -f savanna-cli; pkill -f savanna_server.py
