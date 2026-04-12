@@ -23,7 +23,7 @@ let benchMode = args.contains("--bench")
 let gridSize = Int(arg("grid", default: "1024"))!
 let maxTicks = Int(arg("ticks", default: "0"))!  // 0 = infinite
 let ramGB = Int(arg("ram", default: "4"))!        // GB for ring buffer
-let snapshotPath = "/tmp/savanna_state.bin"
+let snapshotPath = "savanna_state.bin"
 let dayLength = 10
 let nightLength = 10
 
@@ -126,7 +126,7 @@ for t in 0..<tickLimit {
     // Speed control (skip in bench mode)
     if !benchMode {
         var sleepMs: UInt32 = 5
-        if let s = try? String(contentsOfFile: "/tmp/savanna_sleep.txt").trimmingCharacters(in: .whitespacesAndNewlines),
+        if let s = try? String(contentsOfFile: "savanna_sleep.txt").trimmingCharacters(in: .whitespacesAndNewlines),
            let ms = UInt32(s) { sleepMs = max(5, min(200, ms)) }
         usleep(sleepMs * 1000)
     }
@@ -154,19 +154,19 @@ for t in 0..<tickLimit {
             "grassPct":\(fmt(Double(c.grass)/Double(width*height)*100, 1)),\
             "nodes":\(width*height),"colors":7}
             """
-            try? telemetry.write(toFile: "/tmp/savanna_telemetry.json", atomically: true, encoding: .utf8)
+            try? telemetry.write(toFile: "savanna_telemetry.json", atomically: true, encoding: .utf8)
         }
 
         lastPrint = now
     }
 
     // Check for commands
-    if !benchMode, let cmd = try? String(contentsOfFile: "/tmp/savanna_cmd.txt").trimmingCharacters(in: .whitespacesAndNewlines), !cmd.isEmpty {
+    if !benchMode, let cmd = try? String(contentsOfFile: "savanna_cmd.txt").trimmingCharacters(in: .whitespacesAndNewlines), !cmd.isEmpty {
         if cmd.hasPrefix("archive") {
             let path = cmd.replacingOccurrences(of: "archive ", with: "")
             recorder?.archive(to: path, width: width, height: height)
         }
-        try? "".write(toFile: "/tmp/savanna_cmd.txt", atomically: true, encoding: .utf8)
+        try? "".write(toFile: "savanna_cmd.txt", atomically: true, encoding: .utf8)
     }
 }
 

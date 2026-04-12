@@ -1,3 +1,7 @@
 .build/
 .swiftpm/
 scenarios/*.savanna
+savanna_state.bin
+savanna_telemetry.json
+savanna_sleep.txt
+savanna_cmd.txt
