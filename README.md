@@ -77,7 +77,9 @@ Zoom out → time accelerates → watch population dynamics.
 
 The simulation runs as a CLI with real-time stats. Optionally, open the HTML viewer in your browser to watch the savanna — zebra herds migrating across the grassland, lions hunting at watering holes, grass regrowing in their wake.
 
-![Savanna Demo](assets/savanna_demo.gif)
+[![Savanna Demo](assets/savanna_demo.gif)](https://youtu.be/IBKbjUCGKWo)
+
+▶️ [**Watch on YouTube**](https://youtu.be/IBKbjUCGKWo)
 
 ### Build
 
