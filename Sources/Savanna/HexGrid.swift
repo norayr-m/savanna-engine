@@ -1,8 +1,8 @@
-/// HexGrid — Morton Z-curve hex grid with Bayer 3-coloring.
+/// HexGrid — Morton Z-curve hex grid with 7-coloring.
 ///
 /// Flat-top hex, odd-q offset. Neighbors stored as (N, 6) flat array.
-/// Morton ordering via cube coordinates for cache-optimal memory layout.
-/// Bayer 3-coloring: `(col - row) % 3` → three independent sets, zero adjacency within each.
+/// Morton ordering: all index spaces (neighbors, colorGroups, colors) use Morton rank.
+/// 7-coloring: (col + row + 4*(col&1)) mod 7 — distance-2 safe (Molloy & Salavatipour, 2005).
 
 import Foundation
 
@@ -20,21 +20,24 @@ public struct HexGrid {
     public let height: Int
     public let nodeCount: Int
 
-    /// (N, 6) neighbor indices, -1 padded. Flat row-major: neighbors[node * 6 + dir]
+    /// (N, 6) neighbor indices in Morton-rank space, -1 padded.
+    /// neighbors[mortonRank * 6 + dir] = Morton rank of neighbor (or -1).
     public let neighbors: [Int32]
 
-    /// Morton Z-curve index for each node. mortonOrder[i] = morton code of node i.
+    /// Morton Z-curve code for each row-major node. mortonOrder[rowMajor] = morton code.
     public let mortonOrder: [UInt32]
 
-    /// Inverse: mortonToNode[rank] = original node index for rank-th Morton code.
+    /// Inverse: mortonToNode[rank] = row-major node index for rank-th Morton code.
     public let mortonToNode: [Int32]
 
-    /// Four color groups (R/G/B/Q). colorGroups[c] = array of node indices with color c.
-    /// 4-coloring required for odd-q flat-top hex (3-coloring insufficient).
-    /// Matches Trisister 4-simplex: Red, Green, Blue, Queen.
+    /// mortonRank[rowMajor] = Morton rank of that row-major node.
+    /// This is the key mapping: (col,row) → row-major → mortonRank → buffer index.
+    public let mortonRank: [Int32]
+
+    /// Color groups in Morton-rank space. colorGroups[c] = array of Morton ranks with color c.
     public let colorGroups: [[Int32]]
 
-    /// Color assignment per node. colors[i] = 0, 1, 2, or 3.
+    /// Color per Morton rank. colors[mortonRank] = 0..6.
     public let colors: [UInt8]
 
     /// Number of color groups (7 for distance-2 safe hex movement).
@@ -57,10 +60,10 @@ public struct HexGrid {
         let evenOffsets: [(Int, Int)] = [(1,-1),(0,-1),(-1,-1),(-1,0),(0,1),(1,0)]
         let oddOffsets:  [(Int, Int)] = [(1,0), (0,-1),(-1,0), (-1,1),(0,1),(1,1)]
 
-        // Build neighbor matrix + colors
-        var nb = [Int32](repeating: -1, count: n * 6)
-        var col = [UInt8](repeating: 0, count: n)
-        var groups: [[Int32]] = (0..<7).map { _ in [Int32]() }
+        // --- Pass 1: Build row-major neighbor table and colors ---
+        var nbRM = [Int32](repeating: -1, count: n * 6)
+        var colRM = [UInt8](repeating: 0, count: n)
+        var groupsRM: [[Int32]] = (0..<7).map { _ in [Int32]() }
 
         for c in 0..<width {
             let offsets = (c & 1 == 1) ? oddOffsets : evenOffsets
@@ -71,26 +74,18 @@ public struct HexGrid {
                     let nc = c + dc
                     let nr = r + dr
                     if nc >= 0 && nc < width && nr >= 0 && nr < height {
-                        nb[i * 6 + k] = Int32(nr * width + nc)
+                        nbRM[i * 6 + k] = Int32(nr * width + nc)
                     }
                     k += 1
                 }
                 // 7-coloring: (col + row + 4*(col&1)) mod 7
-                // Distance-2 safe: no two same-color nodes share any neighbor.
-                // Exhaustive search on corrected hex grid: 12 valid formulas. This is simplest.
                 let color = UInt8((c + r + 4 * (c & 1)) % 7)
-                col[i] = color
-                groups[Int(color)].append(Int32(i))
+                colRM[i] = color
+                groupsRM[Int(color)].append(Int32(i))
             }
         }
 
-        self.neighbors = nb
-        self.colors = col
-        self.colorGroups = groups
-
-        // Morton Z-curve via cube coordinates
-        // Hex offset (col, row) → cube (q, r) where q = col, r = row - (col - (col & 1)) / 2
-        // Then Morton = interleave(q, r)
+        // --- Morton Z-curve via cube coordinates ---
         var morton = [UInt32](repeating: 0, count: n)
         for c in 0..<width {
             for r in 0..<height {
@@ -106,6 +101,36 @@ public struct HexGrid {
         var indices = (0..<Int32(n)).map { $0 }
         indices.sort { morton[Int($0)] < morton[Int($1)] }
         self.mortonToNode = indices
+
+        // Build mortonRank: inverse of mortonToNode
+        var rank = [Int32](repeating: 0, count: n)
+        for m in 0..<n {
+            rank[Int(indices[m])] = Int32(m)
+        }
+        self.mortonRank = rank
+
+        // --- Pass 2: Translate everything to Morton-rank space ---
+
+        // Neighbor table: nbMorton[m * 6 + d] = Morton rank of neighbor
+        var nbMorton = [Int32](repeating: -1, count: n * 6)
+        for m in 0..<n {
+            let i = Int(indices[m])  // row-major node at Morton rank m
+            for d in 0..<6 {
+                let nbIdx = nbRM[i * 6 + d]
+                nbMorton[m * 6 + d] = nbIdx < 0 ? -1 : rank[Int(nbIdx)]
+            }
+        }
+        self.neighbors = nbMorton
+
+        // Color groups: translate row-major indices to Morton ranks
+        self.colorGroups = groupsRM.map { group in group.map { rank[Int($0)] } }
+
+        // Colors array: reindex so colors[m] = color of Morton rank m
+        var colMorton = [UInt8](repeating: 0, count: n)
+        for m in 0..<n {
+            colMorton[m] = colRM[Int(indices[m])]
+        }
+        self.colors = colMorton
     }
 
     /// Interleave bits of two 16-bit values into a 32-bit Morton code.
@@ -121,7 +146,7 @@ public struct HexGrid {
         return spread(x) | (spread(y) << 1)
     }
 
-    /// Degree of a node (count of valid neighbors, 3-6).
+    /// Degree of a node (count of valid neighbors, 3-6). Takes Morton rank.
     public func degree(of node: Int) -> Int {
         var count = 0
         for d in 0..<6 {
@@ -130,7 +155,7 @@ public struct HexGrid {
         return count
     }
 
-    /// Verify 3-coloring: no two adjacent nodes share a color.
+    /// Verify 7-coloring: no two adjacent nodes share a color. Operates in Morton space.
     public func verifyColoring() -> Bool {
         for i in 0..<nodeCount {
             let myColor = colors[i]

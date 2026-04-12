@@ -1,8 +1,8 @@
 /// SimRecorder — Ring buffer for simulation state recording + playback.
 ///
 /// Records entity buffer snapshots at GPU speed via blit.
-/// Supports forward/backward playback at any speed.
-/// Archives to .savanna files on NVMe. Reloads via mmap.
+/// Ring buffer is in Morton order (matches GPU buffers).
+/// Snapshot files written to disk are de-Mortoned to row-major for HTML renderer.
 
 import Metal
 import Foundation
@@ -30,20 +30,23 @@ public final class SimRecorder {
     public let capacity: Int
     public let frameBytes: Int
 
-    public var head: Int = 0          // next write slot
-    public var frameCount: Int = 0    // valid frames in ring
-    public var totalRecorded: Int = 0 // monotonic counter
+    /// Morton→row-major mapping for de-Morton on disk write.
+    let mortonToNode: [Int32]
+
+    public var head: Int = 0
+    public var frameCount: Int = 0
+    public var totalRecorded: Int = 0
     public var frameMeta: [FrameMeta]
 
     public var mode: RecorderMode = .live
     public var playbackHead: Int = 0
-    public var playbackSpeed: Double = 1.0  // negative = reverse
+    public var playbackSpeed: Double = 1.0
 
-    public init?(device: MTLDevice, nodeCount: Int, capacity: Int = 50_000) {
-        // Start conservative: 50K frames × 1MB = 50GB (fits in 128GB with room for sim)
+    public init?(device: MTLDevice, grid: HexGrid, capacity: Int = 50_000) {
         self.capacity = capacity
-        self.frameBytes = nodeCount  // 1 byte per entity
-        let totalBytes = capacity * nodeCount
+        self.frameBytes = grid.nodeCount
+        self.mortonToNode = grid.mortonToNode
+        let totalBytes = capacity * grid.nodeCount
         guard let buf = device.makeBuffer(length: totalBytes, options: .storageModeShared) else {
             return nil
         }
@@ -59,14 +62,12 @@ public final class SimRecorder {
         let slot = head
         let offset = slot * frameBytes
 
-        // GPU blit: copy entity buffer into ring slot
         guard let blit = cmdBuf.makeBlitCommandEncoder() else { return }
         blit.copy(from: entityBuf, sourceOffset: 0,
                   to: ringBuffer, destinationOffset: offset,
                   size: frameBytes)
         blit.endEncoding()
 
-        // Update metadata + head after GPU completes
         cmdBuf.addCompletedHandler { [weak self] _ in
             guard let self = self else { return }
             self.frameMeta[slot] = FrameMeta(tick: tick, isDay: isDay)
@@ -76,35 +77,40 @@ public final class SimRecorder {
         }
     }
 
-    /// Get pointer to a specific frame in the ring buffer.
+    /// Get pointer to a specific frame in the ring buffer (Morton order).
     public func framePointer(at ringIndex: Int) -> UnsafeRawPointer {
         let offset = (ringIndex % capacity) * frameBytes
         return UnsafeRawPointer(ringBuffer.contents() + offset)
     }
 
-    /// Get the most recent live frame pointer.
     public func currentLiveFrame() -> UnsafeRawPointer {
         let slot = (head - 1 + capacity) % capacity
         return framePointer(at: slot)
     }
 
-    /// Get the current playback frame pointer.
     public func currentPlaybackFrame() -> UnsafeRawPointer {
         return framePointer(at: playbackHead)
     }
 
-    /// Step playback forward or backward.
     public func step(by delta: Int) {
-        let _ = (head - frameCount + capacity) % capacity
         playbackHead = (playbackHead + delta + capacity) % capacity
-        // Clamp to valid range
-        // (simplified — full ring logic would check wrap-around)
     }
 
-    /// Write current playback frame to snapshot file for HTML renderer.
+    /// De-Morton a frame from ring buffer to row-major Data for disk write.
+    func deMortonFrame(ptr: UnsafeRawPointer) -> Data {
+        let src = ptr.bindMemory(to: Int8.self, capacity: frameBytes)
+        var rm = [Int8](repeating: 0, count: frameBytes)
+        for m in 0..<frameBytes {
+            rm[Int(mortonToNode[m])] = src[m]
+        }
+        return Data(bytes: rm, count: frameBytes)
+    }
+
+    /// Write current playback frame to snapshot file (row-major for HTML).
     public func writePlaybackSnapshot(to path: String, width: Int, height: Int) {
         let ptr = currentPlaybackFrame()
         let meta = frameMeta[playbackHead % capacity]
+        let entityData = deMortonFrame(ptr: ptr)
 
         var w = UInt32(width), h = UInt32(height)
         var t = meta.tick
@@ -114,14 +120,16 @@ public final class SimRecorder {
         data.append(Data(bytes: &h, count: 4))
         data.append(Data(bytes: &t, count: 4))
         data.append(Data(bytes: &d, count: 4))
-        data.append(Data(bytes: ptr, count: frameBytes))
+        data.append(entityData)
         try? data.write(to: URL(fileURLWithPath: path))
     }
 
-    /// Write live frame to snapshot file (replaces MetalEngine+Export for recording mode).
+    /// Write live frame to snapshot file (row-major for HTML).
     public func writeLiveSnapshot(to path: String, width: Int, height: Int, tick: Int, isDay: Bool) {
         guard frameCount > 0 else { return }
         let ptr = currentLiveFrame()
+        let entityData = deMortonFrame(ptr: ptr)
+
         var w = UInt32(width), h = UInt32(height)
         var t = UInt32(tick)
         var d: UInt32 = isDay ? 1 : 0
@@ -130,7 +138,7 @@ public final class SimRecorder {
         data.append(Data(bytes: &h, count: 4))
         data.append(Data(bytes: &t, count: 4))
         data.append(Data(bytes: &d, count: 4))
-        data.append(Data(bytes: ptr, count: frameBytes))
+        data.append(entityData)
         try? data.write(to: URL(fileURLWithPath: path))
     }
 }

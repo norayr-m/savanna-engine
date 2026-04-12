@@ -8,6 +8,7 @@ import Foundation
 
 public final class MetalEngine {
     public let device: MTLDevice
+    public let grid: HexGrid
     public var recorder: SimRecorder?
     let queue: MTLCommandQueue
     let tickPipeline: MTLComputePipelineState
@@ -16,11 +17,11 @@ public final class MetalEngine {
     let scentPipeline: MTLComputePipelineState
 
     // State buffers
-    let entityBuf: MTLBuffer
-    let energyBuf: MTLBuffer
-    let ternaryBuf: MTLBuffer
-    let gaugeBuf: MTLBuffer
-    let orientationBuf: MTLBuffer
+    public let entityBuf: MTLBuffer
+    public let energyBuf: MTLBuffer
+    public let ternaryBuf: MTLBuffer
+    public let gaugeBuf: MTLBuffer
+    public let orientationBuf: MTLBuffer
     let neighborsBuf: MTLBuffer
     let colorGroupBufs: [MTLBuffer]
     let colorGroupSizes: [Int]
@@ -49,6 +50,7 @@ public final class MetalEngine {
             throw MetalError.noDevice
         }
         self.device = device
+        self.grid = grid
         self.queue = queue
         self.nodeCount = grid.nodeCount
         let n = nodeCount

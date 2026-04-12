@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>7-Colouring Explained — How Distance-2 Safety Works</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0806; color: #a09070; font: 18px/1.6 'Georgia', serif; scroll-behavior: smooth; }
+  .slide { min-height: 100vh; padding: 40px 20px 40px 60px; display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 1px solid rgba(138,122,90,0.15); max-width: 900px; margin: 0 auto; position: relative; }
+  h1 { font: 36px/1.2 'SF Mono', 'Menlo', 'Courier New', monospace; color: #c4a35a; letter-spacing: 3px; text-align: center; }
+  h2 { font: 24px/1.3 'SF Mono', 'Menlo', 'Courier New', monospace; color: #c4a35a; margin-bottom: 20px; text-align: center; }
+  .narration { color: #706050; font-size: 16px; line-height: 1.7; margin: 16px 0; padding: 16px; border-left: 3px solid rgba(138,122,90,0.2); }
+  .controls { display: flex; gap: 12px; margin: 20px 0; justify-content: center; }
+  .controls button { background: rgba(138,122,90,0.15); border: 1px solid rgba(138,122,90,0.3); color: #c4a35a; padding: 8px 20px; border-radius: 6px; cursor: pointer; font: 16px 'SF Mono', monospace; }
+  .controls button:hover { background: rgba(138,122,90,0.3); }
+  svg { display: block; margin: 20px auto; }
+  .diagram { background: rgba(26,20,8,0.9); border: 1px solid rgba(138,122,90,0.2); border-radius: 8px; padding: 20px; font: 14px/1.5 'SF Mono', 'Menlo', 'Courier New', monospace; color: #8a7a5a; white-space: pre; overflow-x: auto; margin: 16px 0; width: 100%; }
+  .hl { color: #c4a35a; font-weight: bold; }
+  .red { color: #c04030; }
+  .green { color: #6a9a3a; }
+  .blue { color: #4080c0; }
+  .nav { position: fixed; left: 10px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 12px; z-index: 20; }
+  .nav button { background: rgba(26,20,8,0.8); border: 1px solid rgba(138,122,90,0.3); color: #c4a35a; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 18px; }
+  .nav button:hover { background: rgba(138,122,90,0.3); }
+  .slide-num { position: absolute; top: 16px; right: 20px; color: #3a2a1a; font: 14px 'SF Mono', monospace; }
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <button onclick="goSlide(currentSlide-1)" title="Previous">▲</button>
+  <button onclick="speak(currentSlide)" title="Play/Pause (Space)" id="nav-play">▶</button>
+  <button onclick="goSlide(currentSlide+1)" title="Next">▼</button>
+</div>
+
+<!-- SLIDE 1: The Problem -->
+<div class="slide" id="s1">
+  <h2>The Problem</h2>
+  <svg viewBox="0 0 400 250" width="400">
+    <polygon points="100,80 130,60 160,80 160,110 130,130 100,110" fill="none" stroke="#c4a35a" stroke-width="2"/>
+    <text x="130" y="100" text-anchor="middle" fill="#c4a35a" font-size="14" font-family="monospace">A</text>
+
+    <polygon points="200,80 230,60 260,80 260,110 230,130 200,110" fill="none" stroke="#c4a35a" stroke-width="2"/>
+    <text x="230" y="100" text-anchor="middle" fill="#c4a35a" font-size="14" font-family="monospace">T</text>
+
+    <polygon points="300,80 330,60 360,80 360,110 330,130 300,110" fill="none" stroke="#c04030" stroke-width="2"/>
+    <text x="330" y="100" text-anchor="middle" fill="#c04030" font-size="14" font-family="monospace">B</text>
+
+    <line x1="160" y1="95" x2="198" y2="95" stroke="#c4a35a" stroke-width="2" marker-end="url(#arr)"/>
+    <line x1="300" y1="95" x2="262" y2="95" stroke="#c04030" stroke-width="2" marker-end="url(#arr2)"/>
+    <defs>
+      <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#c4a35a"/></marker>
+      <marker id="arr2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#c04030"/></marker>
+    </defs>
+
+    <text x="200" y="170" text-anchor="middle" fill="#c04030" font-size="16" font-family="monospace">CRASH!</text>
+    <text x="200" y="195" text-anchor="middle" fill="#8a7a5a" font-size="12" font-family="monospace">A and B both write to T at the same time</text>
+    <text x="200" y="215" text-anchor="middle" fill="#8a7a5a" font-size="12" font-family="monospace">One overwrites the other. Data lost. Silently.</text>
+  </svg>
+  <div class="narration" id="n1">Two animals move at the same time. Both target the same cell. The GPU has thousands of threads running simultaneously — there is no "first" or "second." Both write. One wins. The other's data vanishes. No error. No crash. Just gone.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(1)">▶</button></div>
+  <div class="slide-num">1 / 6</div>
+</div>
+
+<!-- SLIDE 2: Distance-1 (Easy) -->
+<div class="slide" id="s2">
+  <h2>Distance-1 Safety (The Easy Part)</h2>
+  <svg viewBox="0 0 400 300" width="400">
+    <polygon points="200,100 230,80 260,100 260,130 230,150 200,130" fill="rgba(196,163,90,0.2)" stroke="#c4a35a" stroke-width="2"/>
+    <text x="230" y="120" text-anchor="middle" fill="#c4a35a" font-size="12" font-family="monospace">Color 1</text>
+
+    <polygon points="260,70 290,50 320,70 320,100 290,120 260,100" fill="rgba(106,154,58,0.2)" stroke="#6a9a3a" stroke-width="1.5"/>
+    <text x="290" y="90" text-anchor="middle" fill="#6a9a3a" font-size="10" font-family="monospace">C2</text>
+
+    <polygon points="260,130 290,110 320,130 320,160 290,180 260,160" fill="rgba(64,128,192,0.2)" stroke="#4080c0" stroke-width="1.5"/>
+    <text x="290" y="150" text-anchor="middle" fill="#4080c0" font-size="10" font-family="monospace">C3</text>
+
+    <polygon points="200,160 230,140 260,160 260,190 230,210 200,190" fill="rgba(192,64,48,0.2)" stroke="#c04030" stroke-width="1.5"/>
+    <text x="230" y="180" text-anchor="middle" fill="#c04030" font-size="10" font-family="monospace">C4</text>
+
+    <polygon points="140,130 170,110 200,130 200,160 170,180 140,160" fill="rgba(180,120,200,0.2)" stroke="#b478c8" stroke-width="1.5"/>
+    <text x="170" y="150" text-anchor="middle" fill="#b478c8" font-size="10" font-family="monospace">C5</text>
+
+    <polygon points="140,70 170,50 200,70 200,100 170,120 140,100" fill="rgba(200,180,60,0.2)" stroke="#c8b43c" stroke-width="1.5"/>
+    <text x="170" y="90" text-anchor="middle" fill="#c8b43c" font-size="10" font-family="monospace">C6</text>
+
+    <polygon points="200,40 230,20 260,40 260,70 230,90 200,70" fill="rgba(200,100,60,0.2)" stroke="#c8643c" stroke-width="1.5"/>
+    <text x="230" y="58" text-anchor="middle" fill="#c8643c" font-size="10" font-family="monospace">C7</text>
+
+    <text x="200" y="240" text-anchor="middle" fill="#8a7a5a" font-size="12" font-family="monospace">1 center + 6 neighbours = 7 different colours</text>
+    <text x="200" y="260" text-anchor="middle" fill="#c4a35a" font-size="12" font-family="monospace">This is the "flower" — 7 tiles, 7 colours</text>
+  </svg>
+  <div class="narration" id="n2">If we just needed adjacent cells to be different colours, 4 colours would suffice — like a map. But we need 7. Why? Because of movement. An animal does not just sit on its cell — it WRITES to a neighbour. That is distance-2.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(2)">▶</button></div>
+  <div class="slide-num">2 / 6</div>
+</div>
+
+<!-- SLIDE 3: Distance-2 (The Hard Part) -->
+<div class="slide" id="s3">
+  <h2>Distance-2 — Why 7, Not 4</h2>
+  <svg viewBox="0 0 500 300" width="500">
+    <polygon points="100,130 120,115 140,130 140,155 120,170 100,155" fill="rgba(196,163,90,0.3)" stroke="#c4a35a" stroke-width="2"/>
+    <text x="120" y="147" text-anchor="middle" fill="#c4a35a" font-size="11" font-family="monospace">A (C1)</text>
+
+    <polygon points="150,100 170,85 190,100 190,125 170,140 150,125" fill="rgba(106,154,58,0.3)" stroke="#6a9a3a" stroke-width="2"/>
+    <text x="170" y="117" text-anchor="middle" fill="#6a9a3a" font-size="11" font-family="monospace">T</text>
+
+    <polygon points="200,130 220,115 240,130 240,155 220,170 200,155" fill="rgba(196,163,90,0.3)" stroke="#c04030" stroke-width="2.5"/>
+    <text x="220" y="147" text-anchor="middle" fill="#c04030" font-size="11" font-family="monospace">B (C1!)</text>
+
+    <line x1="141" y1="135" x2="152" y2="120" stroke="#c4a35a" stroke-width="1.5" marker-end="url(#arr)"/>
+    <line x1="199" y1="135" x2="188" y2="120" stroke="#c04030" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+    <text x="170" y="180" text-anchor="middle" fill="#c04030" font-size="13" font-family="monospace">Both Color 1 → fire simultaneously</text>
+    <text x="170" y="200" text-anchor="middle" fill="#c04030" font-size="13" font-family="monospace">Both target T → COLLISION</text>
+
+    <polygon points="310,130 330,115 350,130 350,155 330,170 310,155" fill="rgba(196,163,90,0.3)" stroke="#c4a35a" stroke-width="2"/>
+    <text x="330" y="147" text-anchor="middle" fill="#c4a35a" font-size="11" font-family="monospace">A (C1)</text>
+
+    <polygon points="360,100 380,85 400,100 400,125 380,140 360,125" fill="rgba(106,154,58,0.3)" stroke="#6a9a3a" stroke-width="2"/>
+    <text x="380" y="117" text-anchor="middle" fill="#6a9a3a" font-size="11" font-family="monospace">T</text>
+
+    <polygon points="410,130 430,115 450,130 450,155 430,170 410,155" fill="rgba(64,128,192,0.3)" stroke="#4080c0" stroke-width="2"/>
+    <text x="430" y="147" text-anchor="middle" fill="#4080c0" font-size="11" font-family="monospace">B (C3)</text>
+
+    <text x="380" y="200" text-anchor="middle" fill="#6a9a3a" font-size="13" font-family="monospace">Different colours → different phases</text>
+    <text x="380" y="220" text-anchor="middle" fill="#6a9a3a" font-size="13" font-family="monospace">A fires first. B fires later. SAFE.</text>
+
+    <text x="170" y="250" fill="#c04030" font-size="14" font-family="monospace">4 colours: distance-2 conflicts</text>
+    <text x="380" y="250" text-anchor="middle" fill="#6a9a3a" font-size="14" font-family="monospace">7 colours: zero conflicts</text>
+  </svg>
+  <div class="narration" id="n3">A and B are not adjacent — they are separated by one cell, T. But both can MOVE to T. If A and B share the same colour, they fire in the same GPU dispatch. Both write to T simultaneously. Collision. With 7 colours, no two cells that share ANY common neighbour can have the same colour. They always fire in different phases. When A moves to T, B has already moved or has not yet fired. No conflict possible.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(3)">▶</button></div>
+  <div class="slide-num">3 / 6</div>
+</div>
+
+<!-- SLIDE 4: The Dispatch Sequence -->
+<div class="slide" id="s4">
+  <h2>How the GPU Fires</h2>
+  <div class="diagram">
+<span class="hl">TICK (one simulation step):</span>
+
+Phase 1: Fire all <span style="color:#c4a35a;">Color 1</span> cells     ← 150,000 cells, ALL AT ONCE on GPU
+         (wait for GPU to finish)
+
+Phase 2: Fire all <span style="color:#6a9a3a;">Color 2</span> cells     ← 150,000 cells, ALL AT ONCE
+         (wait)
+
+Phase 3: Fire all <span style="color:#4080c0;">Color 3</span> cells     ← ALL AT ONCE
+         (wait)
+
+Phase 4: Fire all <span style="color:#c04030;">Color 4</span> cells
+Phase 5: Fire all <span style="color:#b478c8;">Color 5</span> cells
+Phase 6: Fire all <span style="color:#c8b43c;">Color 6</span> cells
+Phase 7: Fire all <span style="color:#c8643c;">Color 7</span> cells
+
+Total: 7 sequential phases × 150K parallel cells = 1M cells per tick
+
+<span class="hl">WITHIN each phase:</span> every cell runs simultaneously. No waiting.
+<span class="hl">BETWEEN phases:</span> sequential. GPU waits for one to finish before next.
+
+This is <span class="hl">Chromatic Gauss-Seidel</span>:
+Each colour sees the LATEST state from previous colours.
+Information propagates faster than pure synchronous update.
+  </div>
+  <div class="narration" id="n4">The GPU does not fire all million cells at once. It fires them in 7 waves. Each wave contains only cells of the same colour. Within a wave, every cell runs simultaneously — truly parallel, thousands of GPU cores. Between waves, the GPU synchronises. This means Color 2 cells see the results of Color 1's movements. Information flows forward through the tick.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(4)">▶</button></div>
+  <div class="slide-num">4 / 6</div>
+</div>
+
+<!-- SLIDE 5: The Formula -->
+<div class="slide" id="s5">
+  <h2>The Formula</h2>
+  <div class="diagram">
+<span class="hl">color = (col + row + 4 × (col & 1)) mod 7</span>
+
+What each part does:
+
+<span class="hl">col + row</span>
+  Creates a diagonal gradient across the grid.
+  Every step right or down shifts the colour by 1.
+
+<span class="hl">4 × (col & 1)</span>
+  This is the hex stagger correction.
+  Odd columns are shifted down by half a cell.
+  This shift breaks the simple diagonal pattern.
+  The "4" compensates: it jumps 4 colours on odd columns
+  to maintain distance-2 safety across the stagger boundary.
+
+<span class="hl">mod 7</span>
+  Wraps to 7 colours. The cycle repeats every 7 cells.
+
+Why 7 and not 6?
+  6 colours can do distance-1 (adjacent cells different).
+  But some distance-2 pairs (sharing a common neighbour)
+  would collide. 7 is the mathematical minimum.
+  Proven: Molloy & Salavatipour, 2005.
+
+Found by: exhaustive search over all (a×col + b×row + d×(col&1)) mod 7
+Result: 12 valid formulas. This is the simplest.
+Verified: zero conflicts on 64×64 grid, distance-1 AND distance-2.
+  </div>
+  <div class="narration" id="n5">The formula assigns a number 0 through 6 to every cell based on its column and row. The col-and-one term is the key — it handles the hex grid stagger where odd columns are offset by half a row. Without it, the diagonal pattern would break at column boundaries and two same-coloured cells would share a neighbour. The 4 is not arbitrary — it was found by testing all possible values 0 through 6 and checking which ones produce zero conflicts.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(5)">▶</button></div>
+  <div class="slide-num">5 / 6</div>
+</div>
+
+<!-- SLIDE 6: Your Fibonacci Intuition -->
+<div class="slide" id="s6">
+  <h2>Your Fibonacci Spiral Intuition</h2>
+  <div class="diagram">
+You asked: could you unfurl the grid as a spiral from the center?
+
+<span class="hl">Yes — as a rendering transform.</span>
+
+Currently the grid is stored in memory as a flat row-major
+matrix: index = row × width + col. Simple. Predictable.
+Neighbours are at fixed offsets (~width apart).
+
+A Morton Z-curve or Fibonacci spiral could reorder memory
+so spatial neighbours are even closer in the buffer.
+HexGrid.swift computes Morton codes but the GPU pipeline
+does not use them yet — it runs on flat row-major indices.
+
+The 7-colouring is independent of memory layout.
+The colour is computed from (col, row) coordinates.
+Reordering memory changes cache performance, not safety.
+
+A Fibonacci spiral on a hex lattice would naturally visit
+cells in an order where neighbours are close in sequence.
+This is an alternative memory layout — or purely visual.
+The colouring still applies: same formula, different
+order of storage or rendering.
+
+<span class="hl">GPU clock:</span> You asked about the GPU oscillator.
+Within one dispatch (one colour group), ALL threads fire
+on the same clock edge. There is no sequential ordering
+within a group. That is why the colouring must guarantee
+no conflicts — because there is literally no "first" thread.
+They are all first. Simultaneously.
+  </div>
+  <div class="narration" id="n6">Memory layout and execution scheduling are orthogonal. Currently we use flat row-major storage. Morton Z-curve code exists in HexGrid.swift but is not yet wired into the GPU pipeline. Your Fibonacci spiral intuition maps to the memory layout side — a reordering where spatial neighbours are stored close in memory. The GPU hardware does not spiral. It fires all threads in a group at the exact same clock cycle. No sequence. No order. All at once. That is why the colouring must be perfect.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(6)">▶</button></div>
+  <div class="slide-num">6 / 6</div>
+</div>
+
+<div style="text-align:center;padding:40px;color:#3a2a1a;font:13px 'SF Mono',monospace;">
+  7-colouring: Molloy & Salavatipour, 2005<br>
+  <span style="color:#5a4a2a;">Press Space to narrate · ↑↓ to navigate · Works offline</span>
+</div>
+
+<script>
+const texts = {};
+document.querySelectorAll('.narration').forEach(el => {
+  texts[parseInt(el.id.replace('n',''))] = el.textContent.trim();
+});
+
+let currentSlide = 1;
+let playing = false;
+let utterance = null;
+const totalSlides = 6;
+
+function speak(n) {
+  if (playing) { speechSynthesis.cancel(); playing = false; updateBtns(); return; }
+  currentSlide = n;
+  const text = texts[n];
+  if (!text) return;
+  utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 0.9;
+  utterance.pitch = 1.0;
+  const voices = speechSynthesis.getVoices();
+  const pref = voices.find(v => v.name.includes('George')) ||
+               voices.find(v => v.name.includes('Daniel')) ||
+               voices.find(v => v.name.includes('Jamie')) ||
+               voices.find(v => v.lang.startsWith('en-GB')) ||
+               voices.find(v => v.lang.startsWith('en')) || voices[0];
+  if (pref) utterance.voice = pref;
+  utterance.onend = () => { playing = false; updateBtns(); };
+  speechSynthesis.speak(utterance);
+  playing = true;
+  updateBtns();
+}
+
+function updateBtns() {
+  document.querySelectorAll('.play-btn').forEach(b => b.textContent = '▶');
+  if (playing) {
+    const btns = document.querySelectorAll('.play-btn');
+    if (btns[currentSlide-1]) btns[currentSlide-1].textContent = '⏸';
+  }
+  document.getElementById('nav-play').textContent = playing ? '⏸' : '▶';
+}
+
+function goSlide(n) {
+  n = Math.max(1, Math.min(totalSlides, n));
+  currentSlide = n;
+  document.getElementById('s'+n).scrollIntoView({ behavior: 'smooth' });
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'ArrowUp' || e.code === 'PageUp') { e.preventDefault(); goSlide(currentSlide-1); }
+  if (e.code === 'ArrowDown' || e.code === 'PageDown') { e.preventDefault(); goSlide(currentSlide+1); }
+  if (e.code === 'Space') { e.preventDefault(); speak(currentSlide); }
+});
+
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) currentSlide = parseInt(e.target.id.replace('s','')); });
+}, { threshold: 0.5 });
+document.querySelectorAll('.slide').forEach(s => observer.observe(s));
+
+speechSynthesis.getVoices();
+</script>
+</body>
+</html>

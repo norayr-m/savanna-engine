@@ -59,11 +59,11 @@ extension SimRecorder {
             file.append(Data(repeating: 0, count: 4))
         }
 
-        // ── Raw entity frames ──
+        // ── Raw entity frames (de-Morton to row-major for tool compatibility) ──
         for i in 0..<frameCount {
             let idx = (oldest + i) % capacity
-            let ptr = ringBuffer.contents() + idx * frameBytes
-            file.append(Data(bytes: ptr, count: frameBytes))
+            let ptr = UnsafeRawPointer(ringBuffer.contents() + idx * frameBytes)
+            file.append(deMortonFrame(ptr: ptr))
         }
 
         // Write
@@ -104,7 +104,7 @@ extension SimRecorder {
             let fOff = frameOffset + i * Int(fb)
             if fOff + Int(fb) <= data.count {
                 let dst = ringBuffer.contents() + i * frameBytes
-                _ = data[fOff..<fOff+Int(fb)].withUnsafeBytes { src in
+                data[fOff..<fOff+Int(fb)].withUnsafeBytes { src in
                     memcpy(dst, src.baseAddress!, Int(fb))
                 }
             }

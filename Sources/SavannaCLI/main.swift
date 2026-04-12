@@ -59,7 +59,7 @@ print("  7-colouring: [\(grid.colorGroups.map { "\($0.count)" }.joined(separator
 print("  Initialising state...", terminator: "")
 fflush(stdout)
 var state = SavannaState(width: width, height: height)
-state.randomInit()
+state.randomInit(grid: grid)
 let c0 = state.census()
 let t2 = CFAbsoluteTimeGetCurrent()
 print(" \(fmt(t2 - t1, 1))s")
@@ -81,7 +81,7 @@ print(" \(fmt(t3 - t2, 1))s")
 // ── Recorder ─────────────────────────────────────────────
 let frameBytes = width * height
 let recorderCapacity = ramGB * 1_000_000_000 / frameBytes
-let recorder = SimRecorder(device: device, nodeCount: frameBytes, capacity: min(recorderCapacity, 200_000))
+let recorder = SimRecorder(device: device, grid: grid, capacity: min(recorderCapacity, 200_000))
 if let rec = recorder, !benchMode {
     engine.recorder = rec
     print("  Recorder: \(rec.capacity) frames (\(rec.capacity * frameBytes / 1_000_000) MB)")
@@ -165,6 +165,21 @@ for t in 0..<tickLimit {
         if cmd.hasPrefix("archive") {
             let path = cmd.replacingOccurrences(of: "archive ", with: "")
             recorder?.archive(to: path, width: width, height: height)
+        } else if cmd == "reset" {
+            var newState = SavannaState(width: width, height: height)
+            newState.randomInit(grid: grid)
+            // Copy new state to GPU buffers
+            let entities = newState.entity
+            let energies = newState.energy
+            let ternaries = newState.ternary
+            let gauges = newState.gauge
+            let orientations = newState.orientation
+            entities.withUnsafeBytes { engine.entityBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: entities.count) }
+            energies.withUnsafeBytes { engine.energyBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: energies.count * 2) }
+            ternaries.withUnsafeBytes { engine.ternaryBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: ternaries.count) }
+            gauges.withUnsafeBytes { engine.gaugeBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: gauges.count * 2) }
+            orientations.withUnsafeBytes { engine.orientationBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: orientations.count) }
+            totalComputeTime = 0; tickCount = 0
         }
         try? "".write(toFile: "savanna_cmd.txt", atomically: true, encoding: .utf8)
     }
