@@ -1,3 +1,4 @@
+import Metal
 import Foundation
 import Savanna
 
@@ -104,7 +105,7 @@ print("────────────────────────�
 
 func runConfig(w: Int, h: Int, ticks: Int, label: String) {
     var msAll = [Double](), tpsAll = [Double](), gcupsAll = [Double]()
-    for r in 1...runs {
+    for _ in 1...runs {
         let result = benchOnce(w: w, h: h, ticks: ticks)
         msAll.append(result.ms)
         tpsAll.append(result.tps)

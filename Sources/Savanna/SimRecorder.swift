@@ -95,7 +95,7 @@ public final class SimRecorder {
 
     /// Step playback forward or backward.
     public func step(by delta: Int) {
-        let oldest = (head - frameCount + capacity) % capacity
+        let _ = (head - frameCount + capacity) % capacity
         playbackHead = (playbackHead + delta + capacity) % capacity
         // Clamp to valid range
         // (simplified — full ring logic would check wrap-around)

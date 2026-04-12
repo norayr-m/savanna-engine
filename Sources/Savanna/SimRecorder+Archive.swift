@@ -104,7 +104,7 @@ extension SimRecorder {
             let fOff = frameOffset + i * Int(fb)
             if fOff + Int(fb) <= data.count {
                 let dst = ringBuffer.contents() + i * frameBytes
-                data[fOff..<fOff+Int(fb)].withUnsafeBytes { src in
+                _ = data[fOff..<fOff+Int(fb)].withUnsafeBytes { src in
                     memcpy(dst, src.baseAddress!, Int(fb))
                 }
             }
