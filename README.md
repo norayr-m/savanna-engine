@@ -75,53 +75,49 @@ Zoom out → time accelerates → watch population dynamics.
 
 ## Quick Start
 
+### Build
+
 ```bash
-# 1. Clone and build
 git clone https://github.com/norayr-m/savanna-engine.git
 cd savanna-engine
 swift build -c release
+```
 
-# 2. Verify the benchmark (runs 10× at 1M, 4M, 16M cells)
+### Run Benchmark
+
+```bash
 swift run -c release savanna-bench
+```
 
-# 3. Run the simulation
-swift run -c release savanna-cli
+### Run Simulation + Live Viewer
 
-# The interactive presentation is at:
-# https://norayr-m.github.io/savanna-engine/
-# (no server needed — static HTML)
+```bash
+# 1. Start simulation
+swift run -c release savanna-cli &
+
+# 2. Start web server
+python3 -m http.server 8765 &
+
+# 3. Open browser
+open http://localhost:8765/savanna_live.html
+```
+
+### Stop
+
+```bash
+pkill -f savanna-cli
+pkill -f "http.server"
 ```
 
 ### CLI Options
 
 ```bash
-swift run -c release savanna-cli              # default: 1024×1024, 4GB ring buffer
-swift run -c release savanna-cli --grid 2048  # 4M cells
-swift run -c release savanna-cli --ram 16     # 16 GB ring buffer (more playback frames)
-swift run -c release savanna-cli --ram 1      # 1 GB (fits on 8GB machines)
-swift run -c release savanna-cli --bench      # benchmark mode: no file I/O, pure compute
-swift run -c release savanna-cli --ticks 1000 # run exactly 1000 ticks then stop
+--grid 2048    # 4M cells (default: 1024 = 1M)
+--ram 1        # 1 GB ring buffer (fits 8GB Mac)
+--ram 16       # 16 GB ring buffer
+--bench        # pure compute, no file I/O
+--ticks 1000   # stop after 1000 ticks
 ```
-
-### Live HTML Viewer (optional)
-
-The live viewer (`savanna_live.html`) shows the simulation in real-time in your browser. It requires a simple HTTP server:
-
-```bash
-# Start
-python3 -c "
-import subprocess, webbrowser, time
-subprocess.Popen(['swift','run','-c','release','savanna-cli'])
-subprocess.Popen(['python3','-m','http.server','8765'])
-time.sleep(3)
-webbrowser.open('http://localhost:8765/savanna_live.html')
-"
-
-# Stop
-python3 -c "import os; os.system('pkill -f savanna-cli; pkill -f http.server')"
-```
-
-Controls: scroll to zoom, click to zoom in, space to fit, S stats, M mixer, N reset.
 
 ### Memory Requirements
 
