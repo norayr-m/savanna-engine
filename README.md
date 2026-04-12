@@ -1,10 +1,10 @@
 # Savanna Engine
 
-**Ultra-Scale Spatial Lattice Engine — 25.0 GCUPS on Apple M5 Max**
+**Ultra-Scale Spatial Lattice Engine — 14.6 GCUPS on Apple M5 Max**
 
-A lock-free (entity updates are atomic-free; census uses atomics) parallel entity updates on a spatial computation engine running on Apple Metal.
+An ultra-scale spatial computation engine running on Apple Metal, featuring lock-free, atomic-free parallel entity updates (census uses atomics for population counters).
 
-**25.0 GCUPS** (25.0 billion cell-updates per second) measured at 16M cells on Apple M5 Max with 128 GB unified memory. 10-run validated, low variance (0.5–5% coefficient of variation). Pure GPU compute: 0.61 ms/tick at 1M cells (1,634 tps). See [BENCHMARK.md](BENCHMARK.md) for full methodology — what is measured, what is excluded, and how to reproduce.
+**14.6 GCUPS** (14.6 billion cell-updates per second) measured at 16M cells on Apple M5 Max with 128 GB unified memory. 10-run validated, low variance (0.5–5% coefficient of variation). Pure GPU compute: 0.61 ms/tick at 1M cells (1,634 tps). See [BENCHMARK.md](BENCHMARK.md) for full methodology — what is measured, what is excluded, and how to reproduce.
 
 > The biology is the test workload. The engine is a spatial lattice compute machine.
 
@@ -23,7 +23,7 @@ The simulation models a predator-prey ecosystem (grass → zebra → lion), but 
 | Grid | 1,048,576 nodes (1024×1024 hex) |
 | Channels | 5 per node + 4 scent fields = 23 MB state |
 | Compute | 0.6 ms per tick (12 kernel dispatches) |
-| Throughput | **25 billion** cell-updates/sec |
+| Throughput | **14.6 billion** cell-updates/sec |
 | Simulation rate | 1,634 tps (GPU compute only) |
 | Display rate | 60-120 fps (vsync) |
 | State bandwidth | 29 GB/sec |
@@ -165,7 +165,7 @@ SavannaEngine/
 On a hexagonal grid, each cell has 6 neighbours forming a "flower" of 7 tiles. For movement safety (distance-2 independence), all 7 must execute at different times. The formula `(col + row + 4×(col&1)) mod 7` was found by exhaustive search over all `(a×col + b×row + d×(col&1)) mod 7` candidates. 12 valid formulas exist; this is the simplest.
 
 ### Why Not Atomics?
-GPU atomic operations cost 10-50× more than normal memory writes due to hardware serialisation. With 13 million potential atomic operations per tick eliminated by colouring, the performance gain is ~10-50×. This is the difference between 25 billion ops/sec and ~500 million.
+GPU atomic operations cost 10-50× more than normal memory writes due to hardware serialisation. With 13 million potential atomic operations per tick eliminated by colouring, the performance gain is ~10-50×. This is the difference between 14.6 billion ops/sec and ~500 million.
 
 ### Unified Memory Advantage
 Apple Silicon's unified memory means CPU and GPU share the same 128GB. No PCIe bus copies. The entity buffer lives in one place — computed by the GPU, read by the CPU for display, without ever moving. On discrete GPU systems (NVIDIA), the same operation requires a 1MB DMA transfer per frame.
@@ -189,7 +189,7 @@ Under the current thermodynamic constraints (Type II satiation, ternary metaboli
 
 **We challenge the theoretical ecology community** to find the parameter basin — or functional response modification — that produces stable oscillations on this discrete hex lattice with asynchronous chromatic Gauss-Seidel updates.
 
-The engine runs at 25.0 GCUPS. The biology is the open problem.
+The engine runs at 14.6 GCUPS. The biology is the open problem.
 
 ## References
 

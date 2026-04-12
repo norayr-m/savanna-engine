@@ -133,7 +133,7 @@ for t in 0..<tickLimit {
         let c = engine.census()
         let avgMs = totalComputeTime / Double(tickCount)
         let tps = 1000.0 / avgMs
-        let gcups = Double(width * height) * 12.0 * tps / 1_000_000_000.0
+        let gcups = Double(width * height) * 7.0 * tps / 1_000_000_000.0
         let phase = isDay ? "DAY" : "NGT"
 
         print(String(format: "  %-8d %9d %7d %5d %7.2f ms %7.0f %7.1f B %6s",
@@ -171,7 +171,7 @@ let simEnd = CFAbsoluteTimeGetCurrent()
 let wallTime = simEnd - simStart
 let avgMs = totalComputeTime / Double(tickCount)
 let avgTps = 1000.0 / avgMs
-let gcups = Double(width * height) * 12.0 * avgTps / 1_000_000_000.0
+let gcups = Double(width * height) * 7.0 * avgTps / 1_000_000_000.0
 
 print("──────────────────────────────────────────────────────────────────────────")
 print()

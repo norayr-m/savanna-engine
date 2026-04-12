@@ -27,7 +27,7 @@ Each tick = 13 Metal compute kernel dispatches:
 - 1× grass growth (all cells)
 - 1× census (all cells, atomic counters)
 
-**GCUPS** = cells × 12 dispatches × ticks/sec.
+**GCUPS** = cells × 7 effective passes (4 scent + 1 entity + 1 grass + 1 census) × ticks/sec.
 
 10 runs per grid size. 5-tick warmup per run (eliminates GPU pipeline
 stall on first dispatch). Mean ± standard deviation reported.
@@ -43,7 +43,7 @@ stall on first dispatch). Mean ± standard deviation reported.
 
 Variance <1% standard deviation at all scales.
 
-Peak throughput: **25.0 GCUPS** at 16M cells (GPU memory bandwidth saturation).
+Peak throughput: **14.6 GCUPS** at 16M cells (GPU memory bandwidth saturation).
 
 ## Scaling
 

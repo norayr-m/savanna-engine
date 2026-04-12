@@ -11,7 +11,7 @@ print("  GPU:   " + device.name)
 print("════════════════════════════════════════════════════════════")
 print("")
 print("  5-tick warmup. Pure GPU compute only.")
-print("  GCUPS = cells x 12 dispatches x tps / 1e9")
+print("  GCUPS = cells x 7 effective passes x tps / 1e9")
 print("")
 print("  GRID      ms/tick        TPS       GCUPS")
 print("  ──────────────────────────────────────────")
@@ -33,7 +33,7 @@ func bench(_ w: Int, _ ticks: Int, _ label: String) {
     let elapsed = CFAbsoluteTimeGetCurrent() - t0
     let ms = elapsed / Double(ticks) * 1000
     let tps = 1000.0 / ms
-    let gcups = Double(w * w) * 12.0 * tps / 1e9
+    let gcups = Double(w * w) * 7.0 * tps / 1e9
     print("  \(label)    \(fmt(ms, 2)) ms    \(Int(tps))     \(fmt(gcups, 1)) B")
 }
 
