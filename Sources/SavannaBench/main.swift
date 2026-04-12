@@ -4,6 +4,11 @@ import Metal
 
 let device = MTLCreateSystemDefaultDevice()!
 
+func fmt(_ v: Double, _ d: Int) -> String {
+    let factor = pow(10.0, Double(d))
+    return "\((v * factor).rounded() / factor)"
+}
+
 print("════════════════════════════════════════════════════════════")
 print("  SAVANNA ENGINE — REPRODUCIBLE BENCHMARK")
 print("  Date:  " + ISO8601DateFormatter().string(from: Date()))
@@ -15,12 +20,6 @@ print("  GCUPS = cells x 7 effective passes x tps / 1e9")
 print("")
 print("  GRID      ms/tick        TPS       GCUPS")
 print("  ──────────────────────────────────────────")
-
-func fmt(_ v: Double, _ decimals: Int) -> String {
-    let factor = pow(10.0, Double(decimals))
-    let rounded = (v * factor).rounded() / factor
-    return "\(rounded)"
-}
 
 func bench(_ w: Int, _ ticks: Int, _ label: String) {
     let grid = HexGrid(width: w, height: w)

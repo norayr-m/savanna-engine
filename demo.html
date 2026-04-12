@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Savanna Engine — Live Demo (Pre-Recorded)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1408; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
+  canvas { display: block; image-rendering: pixelated; flex: 1; }
+  #hud { background: rgba(26,20,8,0.8); color: #a09070; font: 13px/1 'SF Mono','Menlo',monospace; padding: 8px 16px; display: flex; gap: 16px; align-items: center; }
+  #hud .val { color: #c4a35a; font-weight: bold; }
+  #controls { background: rgba(26,20,8,0.7); color: #5a4a2a; font: 12px/1 'SF Mono',monospace; padding: 6px 16px; display: flex; gap: 16px; align-items: center; }
+  #controls button { background: rgba(138,122,90,0.15); border: 1px solid rgba(138,122,90,0.3); color: #c4a35a; padding: 4px 12px; border-radius: 4px; cursor: pointer; font: 13px 'SF Mono',monospace; }
+  #controls button:hover { background: rgba(138,122,90,0.3); }
+  #controls input[type=range] { width: 200px; }
+  .note { background: rgba(26,20,8,0.9); color: #8a7a5a; font: 13px/1.5 'SF Mono',monospace; padding: 10px 16px; text-align: center; }
+  .note a { color: #c4a35a; }
+  .note .hl { color: #c4a35a; }
+</style>
+</head>
+<body>
+
+<div class="note">
+  This is a <span class="hl">pre-recorded playback</span> of a 128×128 grid (200 frames).
+  To run the full 1M-cell real-time simulation: <a href="https://github.com/norayr-m/savanna-engine">clone the repo</a> and run <code>swift run -c release savanna-cli</code> on Apple Silicon.
+</div>
+
+<div id="hud">
+  <span>SAVANNA</span>
+  <span>frame <span class="val" id="hud-frame">0</span> / <span id="hud-total">200</span></span>
+  <span style="color:#6a9a3a;">grass <span class="val" id="hud-grass">0</span></span>
+  <span style="color:#d0ccc4;">zebra <span class="val" id="hud-zebra">0</span></span>
+  <span style="color:#c04030;">lion <span class="val" id="hud-lion">0</span></span>
+  <span><span class="val" id="hud-fps">0</span> fps</span>
+</div>
+
+<canvas id="c"></canvas>
+
+<div id="controls">
+  <button id="btn-play" onclick="togglePlay()">▶ Play</button>
+  <button onclick="stepFrame(-1)">◀</button>
+  <button onclick="stepFrame(1)">▶</button>
+  <input type="range" id="scrubber" min="0" max="199" value="0" oninput="scrubTo(this.value)">
+  <span>Speed:</span>
+  <button onclick="setSpeed(1)">1x</button>
+  <button onclick="setSpeed(4)">4x</button>
+  <button onclick="setSpeed(16)">16x</button>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+const COLORS = [
+  [26, 20, 8],     // empty
+  [58, 74, 24],    // grass
+  [232, 228, 220], // zebra
+  [180, 40, 30],   // lion
+  [40, 90, 160],   // water
+];
+
+let W, H, gridW, gridH, frameCount, frames, pixBuf;
+let currentFrame = 0, playing = false, speed = 4, lastTime = 0;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight - 100;
+}
+window.addEventListener('resize', resize);
+resize();
+
+async function loadDemo() {
+  document.getElementById('hud-frame').textContent = 'loading...';
+  const resp = await fetch('scenarios/mini_demo.bin');
+  const buf = await resp.arrayBuffer();
+  const view = new DataView(buf);
+  gridW = view.getUint32(0, true);
+  gridH = view.getUint32(4, true);
+  frameCount = view.getUint32(8, true);
+
+  document.getElementById('hud-total').textContent = frameCount;
+  document.getElementById('scrubber').max = frameCount - 1;
+
+  frames = [];
+  const cellCount = gridW * gridH;
+  for (let i = 0; i < frameCount; i++) {
+    const offset = 12 + i * cellCount;
+    frames.push(new Uint8Array(buf, offset, cellCount));
+  }
+
+  pixBuf = ctx.createImageData(gridW, gridH);
+  renderFrame(0);
+  playing = true;
+  document.getElementById('btn-play').textContent = '⏸ Pause';
+  requestAnimationFrame(loop);
+}
+
+function renderFrame(idx) {
+  if (!frames || idx >= frames.length) return;
+  currentFrame = idx;
+  const data = frames[idx];
+  const px = pixBuf.data;
+
+  let grass = 0, zebra = 0, lion = 0;
+  for (let i = 0; i < data.length; i++) {
+    const e = data[i];
+    const c = COLORS[e] || COLORS[0];
+    const p = i * 4;
+    px[p] = c[0]; px[p+1] = c[1]; px[p+2] = c[2]; px[p+3] = 255;
+    if (e === 1) grass++;
+    else if (e === 2) zebra++;
+    else if (e === 3) lion++;
+  }
+
+  // Draw to offscreen then scale to canvas
+  const offscreen = new OffscreenCanvas(gridW, gridH);
+  const offCtx = offscreen.getContext('2d');
+  offCtx.putImageData(pixBuf, 0, 0);
+
+  ctx.fillStyle = '#1a1408';
+  ctx.fillRect(0, 0, W, H);
+  ctx.imageSmoothingEnabled = false;
+
+  const scale = Math.min(W / gridW, H / gridH);
+  const dx = (W - gridW * scale) / 2;
+  const dy = (H - gridH * scale) / 2;
+  ctx.drawImage(offscreen, dx, dy, gridW * scale, gridH * scale);
+
+  document.getElementById('hud-frame').textContent = idx;
+  document.getElementById('hud-grass').textContent = grass.toLocaleString();
+  document.getElementById('hud-zebra').textContent = zebra.toLocaleString();
+  document.getElementById('hud-lion').textContent = lion.toLocaleString();
+  document.getElementById('scrubber').value = idx;
+}
+
+let frameAccum = 0;
+function loop(time) {
+  if (playing) {
+    const dt = time - lastTime;
+    if (dt > 1000 / 60) {
+      frameAccum += speed;
+      while (frameAccum >= 1) {
+        currentFrame = (currentFrame + 1) % frameCount;
+        frameAccum -= 1;
+      }
+      renderFrame(currentFrame);
+      lastTime = time;
+      document.getElementById('hud-fps').textContent = Math.round(1000 / dt);
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+function togglePlay() {
+  playing = !playing;
+  document.getElementById('btn-play').textContent = playing ? '⏸ Pause' : '▶ Play';
+}
+
+function stepFrame(delta) {
+  playing = false;
+  document.getElementById('btn-play').textContent = '▶ Play';
+  currentFrame = (currentFrame + delta + frameCount) % frameCount;
+  renderFrame(currentFrame);
+}
+
+function scrubTo(val) {
+  playing = false;
+  document.getElementById('btn-play').textContent = '▶ Play';
+  renderFrame(parseInt(val));
+}
+
+function setSpeed(s) { speed = s; }
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  if (e.code === 'ArrowLeft') stepFrame(-1);
+  if (e.code === 'ArrowRight') stepFrame(1);
+});
+
+loadDemo();
+</script>
+</body>
+</html>

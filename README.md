@@ -10,7 +10,7 @@ An ultra-scale spatial computation engine running on Apple Metal, featuring lock
 
 > The biology is the test workload. The engine is a spatial lattice compute machine.
 
-[**→ Interactive Presentation**](https://norayr-m.github.io/savanna-engine/) | [**→ About**](https://norayr-m.github.io/savanna-engine/about.html) | [**→ Benchmark**](BENCHMARK.md)
+[**→ Interactive Presentation**](https://norayr-m.github.io/savanna-engine/) | [**→ About**](https://norayr-m.github.io/savanna-engine/about.html) | [**→ Benchmark**](BENCHMARK.md) | [**→ Live Demo**](https://norayr-m.github.io/savanna-engine/demo.html)
 
 ## What This Is
 
@@ -119,6 +119,11 @@ open http://localhost:8765/savanna_live.html
 ```
 
 Controls: scroll to zoom (+ spacetime scaling), click to zoom in, space to fit, S for stats, M for mixer, N to reset.
+
+To stop:
+```bash
+pkill -f savanna-cli; kill %1 %2    # stop sim + server
+```
 
 ### Memory Requirements
 

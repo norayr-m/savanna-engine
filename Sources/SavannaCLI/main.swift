@@ -8,6 +8,12 @@ import Savanna
 // ══════════════════════════════════════════════════════════
 
 // ── Parse args ───────────────────────────────────────────
+
+func fmt(_ v: Double, _ d: Int) -> String {
+    let factor = pow(10.0, Double(d))
+    return "\((v * factor).rounded() / factor)"
+}
+
 let args = CommandLine.arguments
 func arg(_ name: String, default val: String) -> String {
     if let i = args.firstIndex(of: "--\(name)"), i + 1 < args.count { return args[i + 1] }
@@ -46,7 +52,7 @@ fflush(stdout)
 let t0 = CFAbsoluteTimeGetCurrent()
 let grid = HexGrid(width: width, height: height)
 let t1 = CFAbsoluteTimeGetCurrent()
-print(" \(String(format: "%.1f", t1 - t0))s")
+print(" \(fmt(t1 - t0, 1))s")
 print("  7-colouring: [\(grid.colorGroups.map { "\($0.count)" }.joined(separator: ", "))]")
 
 // ── Init state ───────────────────────────────────────────
@@ -56,7 +62,7 @@ var state = SavannaState(width: width, height: height)
 state.randomInit()
 let c0 = state.census()
 let t2 = CFAbsoluteTimeGetCurrent()
-print(" \(String(format: "%.1f", t2 - t1))s")
+print(" \(fmt(t2 - t1, 1))s")
 print("  Census: grass=\(c0.grass) zebra=\(c0.zebra) lion=\(c0.lion)")
 
 // ── Metal engine ─────────────────────────────────────────
@@ -70,7 +76,7 @@ do {
     exit(1)
 }
 let t3 = CFAbsoluteTimeGetCurrent()
-print(" \(String(format: "%.1f", t3 - t2))s")
+print(" \(fmt(t3 - t2, 1))s")
 
 // ── Recorder ─────────────────────────────────────────────
 let frameBytes = width * height
@@ -92,8 +98,7 @@ var lastPrint = simStart
 
 // Header
 print("──────────────────────────────────────────────────────────────────────────")
-print(String(format: "  %-8s %9s %7s %5s %9s %9s %9s %6s",
-             "TICK", "GRASS", "ZEBRA", "LION", "ms/tick", "TPS", "GCUPS", "PHASE"))
+print("  TICK       GRASS   ZEBRA  LION    ms/tick      TPS     GCUPS  PHASE")
 print("──────────────────────────────────────────────────────────────────────────")
 
 for t in 0..<tickLimit {
@@ -136,18 +141,17 @@ for t in 0..<tickLimit {
         let gcups = Double(width * height) * 7.0 * tps / 1_000_000_000.0
         let phase = isDay ? "DAY" : "NGT"
 
-        print(String(format: "  %-8d %9d %7d %5d %7.2f ms %7.0f %7.1f B %6s",
-                     t + 1, c.grass, c.zebra, c.lion, avgMs, tps, gcups, phase))
+        print("  \(t+1)\t\(c.grass)\t\(c.zebra)\t\(c.lion)\t\(fmt(avgMs,2)) ms\t\(Int(tps))\t\(fmt(gcups,1)) B\t\(phase)")
 
         // Telemetry for HTML stats panel
         if !benchMode {
             let telemetry = """
-            {"tick":\(t+1),"day":\((t+1)/4),"year":\(String(format:"%.2f",Double(t+1)/1460.0)),\
-            "ms":\(String(format:"%.2f",avgMs)),"tps":\(Int(tps)),"speed":1,\
+            {"tick":\(t+1),"day":\((t+1)/4),"year":\(fmt(Double(t+1)/1460.0, 2)),\
+            "ms":\(fmt(avgMs, 2)),"tps":\(Int(tps)),"speed":1,\
             "grass":\(c.grass),"zebra":\(c.zebra),"lion":\(c.lion),"energy":\(c.totalEnergy),\
             "dG":0,"dZ":0,"dL":0,\
-            "ratio":\(String(format:"%.1f",c.zebra > 0 ? Double(c.zebra)/max(1,Double(c.lion)) : 0)),\
-            "grassPct":\(String(format:"%.1f",Double(c.grass)/Double(width*height)*100)),\
+            "ratio":\(fmt(c.zebra > 0 ? Double(c.zebra)/max(1,Double(c.lion)) : 0, 1)),\
+            "grassPct":\(fmt(Double(c.grass)/Double(width*height)*100, 1)),\
             "nodes":\(width*height),"colors":7}
             """
             try? telemetry.write(toFile: "/tmp/savanna_telemetry.json", atomically: true, encoding: .utf8)
@@ -177,8 +181,8 @@ print("────────────────────────�
 print()
 print("  SUMMARY")
 print("  Ticks:     \(tickCount)")
-print("  Wall time: \(String(format: "%.1f", wallTime))s")
-print("  Compute:   \(String(format: "%.2f", avgMs)) ms/tick (GPU only)")
+print("  Wall time: \(fmt(wallTime, 1))s")
+print("  Compute:   \(fmt(avgMs, 2)) ms/tick (GPU only)")
 print("  TPS:       \(Int(avgTps)) (GPU only)")
-print("  GCUPS:     \(String(format: "%.1f", gcups))")
+print("  GCUPS:     \(fmt(gcups, 1))")
 print()
