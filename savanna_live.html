@@ -389,7 +389,7 @@ function clampZoom() {
   // Reference: zoom=1.0 (1 pixel = 1 cell) = real time (1x)
   const timeSpeed = Math.max(1, Math.round(1 / Math.pow(zoom, 1.5)));
   const sleepMs = Math.max(5, Math.min(100, Math.round(30 * Math.pow(zoom, 1.5))));  // cap 100ms = 10fps min
-  fetch('/set_speed?level=' + timeSpeed + '&sleep=' + sleepMs);
+  // Speed display only — CLI reads savanna_sleep.txt if present
   // Display
   if (zoom >= 1) {
     const slowdown = zoom * zoom;
@@ -531,7 +531,7 @@ async function loop() {
     document.getElementById('hud-fps').textContent = frames;
     frames = 0; lastFpsTime = now;
     // Fetch sim telemetry → stats panel
-    fetch('/telemetry').then(r => r.json()).then(t => {
+    fetch('savanna_telemetry.json').then(r => r.json()).then(t => {
       document.getElementById('hud-telemetry').textContent = `sim:${t.tps}tps ${t.ms}ms/t`;
       // Population
       document.getElementById('st-grass').textContent = t.grass.toLocaleString();
