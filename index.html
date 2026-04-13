@@ -63,7 +63,7 @@
   </div>
   <div class="narration" id="n1">A million hexagonal cells. A living ecosystem simulated twelve hundred and fifty times per second on a single GPU. Displayed at your screen's refresh rate. The biology is the test workload. The engine is a ultra-scale spatial lattice engine.</div>
   <div class="controls"><button class="play-btn" onclick="speak(1)">▶</button></div>
-  <div class="slide-num">1 / 9</div>
+  <div class="slide-num">1 / 10</div>
 </div>
 
 <!-- SLIDE 2 -->
@@ -84,7 +84,7 @@
   </table>
   <div class="narration" id="n2">Five channels per node. Seven bytes per cell. Times one million. Plus four scent diffusion fields. Twenty-three megabytes of state, mutated twelve hundred and fifty times per second. Twenty-nine gigabytes per second of state throughput.</div>
   <div class="controls"><button class="play-btn" onclick="speak(2)">▶</button></div>
-  <div class="slide-num">2 / 9</div>
+  <div class="slide-num">2 / 10</div>
 </div>
 
 <!-- SLIDE 3 -->
@@ -106,7 +106,7 @@
   </div>
   <div class="narration" id="n3">Thirteen Metal kernel launches per tick. Four scent diffusions, each touching all million cells. Seven entity updates, one per colour group. Plus grass growth and census. Thirteen million cell updates per tick. At twelve hundred and fifty ticks per second, that is seventeen billion cell updates per second.</div>
   <div class="controls"><button class="play-btn" onclick="speak(3)">▶</button></div>
-  <div class="slide-num">3 / 9</div>
+  <div class="slide-num">3 / 10</div>
 </div>
 
 <!-- SLIDE 4 -->
@@ -130,7 +130,7 @@
   <p><span class="tag tag-gpu">lock-free</span> <span class="tag tag-gpu">atomic-free</span> <span class="tag tag-algo">distance-2 safe</span></p>
   <div class="narration" id="n4">When nodes move, they write to a neighbour cell. If two GPU threads write the same cell simultaneously, data is silently destroyed. The seven colouring guarantees no two same-coloured cells share any common neighbour. Within each group, all one hundred and fifty thousand cells run in parallel. No locks. No atomics. Pure data parallelism.</div>
   <div class="controls"><button class="play-btn" onclick="speak(4)">▶</button></div>
-  <div class="slide-num">4 / 9</div>
+  <div class="slide-num">4 / 10</div>
 </div>
 
 <!-- SLIDE 5 -->
@@ -152,7 +152,7 @@
   </div>
   <div class="narration" id="n5">The GPU computes one million cells in zero point eight milliseconds. Then renders in zero point two. Then waits fifteen milliseconds for the screen. The GPU is idle ninety-five percent of the time. Without vsync: twelve hundred and fifty ticks per second. Seventeen billion cell updates per second. On one chip.</div>
   <div class="controls"><button class="play-btn" onclick="speak(5)">▶</button></div>
-  <div class="slide-num">5 / 9</div>
+  <div class="slide-num">5 / 10</div>
 </div>
 
 <!-- SLIDE 6 -->
@@ -174,7 +174,7 @@
   </div>
   <div class="narration" id="n6">Metal compute scales linearly. Double the cells, double the time. Sixteen million cells: seventy-seven ticks per second. Sixty-four million: nineteen. One billion cells: one tick per second. The M5 Max has one hundred twenty-eight gigabytes of unified memory. Real-time up to one billion cells.</div>
   <div class="controls"><button class="play-btn" onclick="speak(6)">▶</button></div>
-  <div class="slide-num">6 / 9</div>
+  <div class="slide-num">6 / 10</div>
 </div>
 
 <!-- SLIDE 7 -->
@@ -198,7 +198,7 @@
   </div>
   <div class="narration" id="n7">HTML goes through six hops: GPU, CPU, file, HTTP, JavaScript, canvas. Twenty-five milliseconds. Metal native: GPU to screen. One millisecond. Twenty-five times less latency. Both run simultaneously.</div>
   <div class="controls"><button class="play-btn" onclick="speak(7)">▶</button></div>
-  <div class="slide-num">7 / 9</div>
+  <div class="slide-num">7 / 10</div>
 </div>
 
 <!-- SLIDE 8 -->
@@ -225,11 +225,36 @@
   </div>
   <div class="narration" id="n8">The ceiling is not the hardware. It is the algorithm. When ten thousand nodes move as a block, we compute one hull translation instead of ten thousand individual decisions. One hundred times speedup. Same hardware. The savanna was the proof of concept. The engine runs any local computation on any colourable graph at seventeen billion operations per second.</div>
   <div class="controls"><button class="play-btn" onclick="speak(8)">▶</button></div>
-  <div class="slide-num">8 / 9</div>
+  <div class="slide-num">8 / 10</div>
+</div>
+
+<!-- MORTON Z-CURVE -->
+<div class="slide" id="s9">
+  <h2>MORTON Z-CURVE — 2× Faster at Scale</h2>
+  <table>
+    <tr><th>Grid</th><th>Cells</th><th>Row-Major</th><th>Morton</th><th>Speedup</th></tr>
+    <tr><td>4096²</td><td>16M</td><td>8.01 ms</td><td>7.78 ms</td><td class="num">+3%</td></tr>
+    <tr><td>8192²</td><td>64M</td><td>33.69 ms</td><td>29.77 ms</td><td class="num">+12%</td></tr>
+    <tr><td>16384²</td><td>256M</td><td>206.90 ms</td><td>126.88 ms</td><td class="num">+39%</td></tr>
+    <tr><td style="color:#c4a35a;">32768²</td><td class="num">1B</td><td style="color:#c04030;">1,102 ms</td><td style="color:#6a9a3a;">523 ms</td><td class="num" style="color:#c4a35a;">2.11×</td></tr>
+  </table>
+  <div class="diagram">
+  GCUPS scaling (10 runs, 95% CI):
+
+  Row-Major:  <span class="red">14.7 → 13.9 → 9.1 → 6.8</span>   collapses at scale
+  Morton:     <span class="green">15.1 → 15.8 → 14.8 → 14.4</span>   flat across 3 orders
+
+  Same Metal kernels. Zero code changes.
+  The speedup comes from <span class="hl">data layout alone</span>.
+  </div>
+  <p style="margin-top:16px;"><a href="morton_charts.html" style="color:#c4a35a;font:14px 'SF Mono',monospace;">Full comparison with charts →</a></p>
+  <div class="narration" id="n9">Morton Z-curve reorders memory so spatial neighbors are close. At one billion cells, it is two point one times faster than row-major layout. The Metal kernels are identical — zero code changes. The speedup comes entirely from data layout. Row-major throughput collapses from fourteen point seven to six point eight GCUPS as the grid grows. Morton stays flat at fourteen point four. See the full comparison with interactive charts.</div>
+  <div class="controls"><button class="play-btn" onclick="speak(9)">▶</button></div>
+  <div class="slide-num">9 / 10</div>
 </div>
 
 <!-- HOW TO RUN -->
-<div class="slide" id="s9">
+<div class="slide" id="s10">
   <h2>HOW TO RUN</h2>
   <div class="diagram">
   <span class="hl">1. Clone and build</span>
@@ -262,7 +287,7 @@
   • --ram 4  → 16 GB Mac (default)
   • --ram 50 → 128 GB Mac
   </div>
-  <div class="slide-num">9 / 9</div>
+  <div class="slide-num">10 / 10</div>
 </div>
 
 <!-- FOOTER -->
@@ -283,7 +308,7 @@ document.querySelectorAll('.narration').forEach(el => {
 let currentSlide = 1;
 let playing = false;
 let utterance = null;
-const totalSlides = 9;
+const totalSlides = 10;
 
 function speak(n) {
   if (playing) { speechSynthesis.cancel(); playing = false; updateBtns(); return; }
