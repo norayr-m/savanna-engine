@@ -10,7 +10,7 @@ An ultra-scale spatial computation engine running on Apple Metal, featuring lock
 
 > The biology is the test workload. The engine is a spatial lattice compute machine.
 
-[**→ Interactive Presentation**](https://norayr-m.github.io/savanna-engine/) | [**→ About**](https://norayr-m.github.io/savanna-engine/about.html) | [**→ Benchmark**](BENCHMARK.md) | [**→ Live Demo**](https://norayr-m.github.io/savanna-engine/demo.html)
+[**→ Interactive Presentation**](https://norayr-m.github.io/savanna-engine/) | [**→ About**](https://norayr-m.github.io/savanna-engine/about.html) | [**→ Benchmark**](BENCHMARK.md) | [**→ Morton Z-Curve: 2× faster at 1B cells**](https://norayr-m.github.io/savanna-engine/morton_charts.html) | [**→ Live Demo**](https://norayr-m.github.io/savanna-engine/demo.html)
 
 ## What This Is
 
@@ -77,9 +77,9 @@ Zoom out → time accelerates → watch population dynamics.
 
 The simulation runs as a CLI with real-time stats. Optionally, open the HTML viewer in your browser to watch the savanna — zebra herds migrating across the grassland, lions hunting at watering holes, grass regrowing in their wake.
 
-[![Savanna Demo](assets/savanna_demo.gif)](https://youtu.be/IBKbjUCGKWo)
+[![Savanna Demo](assets/savanna_demo.gif)](https://youtu.be/TgGkNxp3aK0)
 
-▶️ [**Watch on YouTube**](https://youtu.be/IBKbjUCGKWo)
+▶️ [**Watch on YouTube**](https://youtu.be/TgGkNxp3aK0)
 
 ### Build
 

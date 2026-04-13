@@ -18,12 +18,50 @@
   td:first-child { text-align: left; }
   .faster { color: #6a9a3a; font-weight: bold; }
   .slower { color: #c04030; }
+  .intro { color: #a09070; font-size: 15px; line-height: 1.8; margin: 0 0 30px; padding: 20px; border-left: 3px solid rgba(138,122,90,0.2); }
+  .intro strong { color: #c4a35a; }
+  .diagram { background: rgba(26,20,8,0.9); border: 1px solid rgba(138,122,90,0.2); border-radius: 8px; padding: 20px; font: 14px/1.5 'SF Mono', monospace; color: #8a7a5a; white-space: pre; margin: 16px 0; }
+  .hl { color: #c4a35a; font-weight: bold; }
+  a { color: #c4a35a; }
 </style>
 </head>
 <body>
 
+<p style="margin-bottom:20px;"><a href="index.html" style="font:12px 'SF Mono',monospace;">← Back to Savanna Engine</a></p>
+
 <h1>Morton Z-Curve vs Row-Major</h1>
-<p class="subtitle">Statistical Benchmark — 10 runs per grid, 95% confidence intervals<br>Apple M5 Max, 128 GB unified memory</p>
+<p class="subtitle">How reordering memory made the simulation 2× faster at 1 billion cells<br>with zero changes to the GPU code</p>
+
+<h2>The Problem</h2>
+<div class="intro">
+<strong>GPU simulations touch neighbours.</strong> Every cell in the simulation reads the state of its 6 neighbouring cells, every tick. On a hex grid with 1 billion cells, that's 6 billion memory reads per tick.
+
+<strong>Where those neighbours live in memory matters.</strong> GPUs read memory in chunks called "cache lines" (128 bytes on Apple Silicon). If your neighbour's data is in the same cache line you already loaded, the read is essentially free. If it's far away in memory, the GPU has to fetch a whole new chunk from main memory — that costs ~100 nanoseconds.
+
+<strong>Row-major layout</strong> is the default: cells are stored left-to-right, row by row. Your left and right neighbours are right next to you in memory — fast. But your top and bottom neighbours are an entire row width away. On a 32,768-wide grid, that's 128 KB away — a guaranteed cache miss for every vertical neighbour read.
+
+<strong>Morton Z-curve</strong> interleaves the bits of the column and row coordinates, creating a space-filling Z-pattern. Cells that are spatial neighbours end up close together in memory — in all directions, not just horizontal. The GPU loads one cache line and finds most of its neighbours already there.
+</div>
+
+<div class="diagram">
+<span class="hl">Row-Major:</span>  neighbours in same row = fast (adjacent in memory)
+              neighbours in other rows = slow (width apart in memory)
+
+<span class="hl">Morton Z:</span>   ALL neighbours clustered within a few hundred indices
+              cache line loads serve multiple neighbour reads
+
+At 1M cells:   doesn't matter (everything fits in cache)
+At 1B cells:   <span class="hl">everything</span> — row-major thrashes, Morton stays fast
+</div>
+
+<h2>The Experiment</h2>
+<div class="intro">
+We ran the <strong>exact same simulation</strong> — same hex grid, same predator-prey biology, same Metal GPU kernels — with two different memory layouts. The <strong>only change</strong> was how the state arrays are indexed: row-major vs Morton Z-curve.
+
+No kernel code was modified. No algorithms changed. No GPU shader touched. Just data layout.
+
+Each grid size was run <strong>10 times</strong> with a fresh grid and different random seed per run. We report the mean, standard deviation, and 95% confidence interval. The confidence intervals don't overlap at any scale ≥ 4M cells — the results are statistically significant.
+</div>
 
 <h2>Throughput (GCUPS) vs Grid Size</h2>
 <canvas id="gcups" width="900" height="400"></canvas>
