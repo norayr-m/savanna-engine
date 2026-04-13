@@ -178,6 +178,10 @@ class Recording:
 class TileHandler(BaseHTTPRequestHandler):
     recording: Recording = None
     viewer_html: str = ''
+    serve_dir: str = '.'  # directory containing savanna_live.html etc.
+    current_frame: int = 0
+    display_width: int = 2048  # downsample large grids to this for savanna_live.html
+    display_height: int = 2048
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -192,8 +196,24 @@ class TileHandler(BaseHTTPRequestHandler):
             self._serve_tile(params)
         elif path == '/frame_count':
             self._serve_text(str(self.recording.frame_count))
+        # ── Savanna Live HTML compatibility ──
+        elif path == '/savanna_live.html':
+            self._serve_file('savanna_live.html', 'text/html')
+        elif path.startswith('/savanna_state.bin'):
+            self._serve_savanna_snapshot(params)
+        elif path == '/savanna_telemetry.json':
+            self._serve_savanna_telemetry()
+        elif path == '/savanna_cmd.txt':
+            self._serve_text('')  # no commands
+        elif path == '/savanna_sleep.txt':
+            # Playback speed: spread frames across ~30 seconds
+            ms_per_frame = max(100, 30000 // max(1, self.recording.frame_count))
+            self._serve_text(str(ms_per_frame))
+        elif path == '/reset':
+            self._serve_text('ok')
         else:
-            self.send_error(404)
+            # Try serving static files from serve_dir
+            self._serve_file(path.lstrip('/'), None)
 
     def _serve_html(self):
         self.send_response(200)
@@ -237,6 +257,94 @@ class TileHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'text/plain')
         self.end_headers()
         self.wfile.write(text.encode())
+
+    def _serve_file(self, filename, content_type=None):
+        """Serve a static file from serve_dir."""
+        filepath = Path(self.serve_dir) / filename
+        if not filepath.exists():
+            self.send_error(404)
+            return
+        if content_type is None:
+            ext = filepath.suffix.lower()
+            content_type = {
+                '.html': 'text/html', '.js': 'application/javascript',
+                '.css': 'text/css', '.json': 'application/json',
+                '.png': 'image/png', '.gif': 'image/gif',
+                '.wav': 'audio/wav', '.bin': 'application/octet-stream',
+            }.get(ext, 'application/octet-stream')
+        data = filepath.read_bytes()
+        self.send_response(200)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_savanna_snapshot(self, params):
+        """Serve a frame in savanna_state.bin format (header + entity bytes).
+
+        Downsamples large grids to display_width × display_height.
+        savanna_live.html reads this format natively.
+        """
+        rec = self.recording
+        # Cycle through frames on each request (auto-advance for playback)
+        frame = rec.get_frame(TileHandler.current_frame)
+        TileHandler.current_frame = (TileHandler.current_frame + 1) % rec.frame_count
+
+        # Downsample if grid is larger than display size
+        dw = min(rec.width, self.display_width)
+        dh = min(rec.height, self.display_height)
+        if rec.width > dw or rec.height > dh:
+            step_x = rec.width // dw
+            step_y = rec.height // dh
+            downsampled = frame[::step_y, ::step_x]
+            # Trim to exact display size
+            downsampled = downsampled[:dh, :dw]
+        else:
+            downsampled = frame
+            dw, dh = rec.width, rec.height
+
+        # Build savanna_state.bin format: 16-byte header + entity bytes
+        header = struct.pack('<IIII', dw, dh, TileHandler.current_frame, 1)
+        payload = header + downsampled.tobytes()
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/octet-stream')
+        self.send_header('Content-Length', str(len(payload)))
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _serve_savanna_telemetry(self):
+        """Serve telemetry JSON for savanna_live.html stats panel."""
+        rec = self.recording
+        frame = rec.get_frame(max(0, TileHandler.current_frame - 1))
+        # Quick census
+        unique, counts = np.unique(frame, return_counts=True)
+        census = dict(zip(unique.tolist(), counts.tolist()))
+
+        telemetry = {
+            'tick': TileHandler.current_frame,
+            'day': TileHandler.current_frame // 4,
+            'year': round(TileHandler.current_frame / 1460.0, 2),
+            'ms': 522.0,  # placeholder for 1B
+            'tps': 1,
+            'speed': 1,
+            'grass': census.get(1, 0),
+            'zebra': census.get(2, 0),
+            'lion': census.get(3, 0),
+            'energy': 0,
+            'dG': 0, 'dZ': 0, 'dL': 0,
+            'ratio': round(census.get(2, 0) / max(1, census.get(3, 1)), 1),
+            'grassPct': round(census.get(1, 0) / max(1, rec.width * rec.height) * 100, 1),
+            'nodes': rec.width * rec.height,
+            'colors': 7,
+        }
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps(telemetry).encode())
 
     def log_message(self, fmt, *args):
         pass  # Quiet
@@ -431,22 +539,65 @@ addEventListener('keydown', e => {
 
 def main():
     import argparse
+    from socketserver import ThreadingMixIn
+
+    class ThreadedHTTP(ThreadingMixIn, HTTPServer):
+        daemon_threads = True
+
     parser = argparse.ArgumentParser(description='Savanna Tile Server')
     parser.add_argument('recording', help='Path to recording directory')
     parser.add_argument('--port', type=int, default=8800)
+    parser.add_argument('--serve-dir', default=None,
+                        help='Directory with savanna_live.html (auto-detected)')
+    parser.add_argument('--display', type=int, default=2048,
+                        help='Downsample large grids to NxN for savanna_live.html')
     args = parser.parse_args()
 
     rec = Recording(args.recording)
-    print(f'  Tile Server')
-    print(f'  Grid: {rec.width} × {rec.height} ({rec.width * rec.height:,} cells)')
-    print(f'  Frames: {rec.frame_count}')
-    print(f'  http://localhost:{args.port}')
-    print(f'  Ctrl+C to stop')
+
+    # Auto-detect serve-dir: look for savanna_live.html
+    serve_dir = args.serve_dir
+    if not serve_dir:
+        for candidate in [
+            Path(args.recording).parent,
+            Path(args.recording),
+            Path('.'),
+            Path(__file__).parent,
+        ]:
+            if (candidate / 'savanna_live.html').exists():
+                serve_dir = str(candidate)
+                break
+    if not serve_dir:
+        serve_dir = str(Path(__file__).parent)
+
+    cells = rec.width * rec.height
+    if cells >= 1e12:
+        cell_str = f'{cells/1e12:.1f}T'
+    elif cells >= 1e9:
+        cell_str = f'{cells/1e9:.1f}B'
+    elif cells >= 1e6:
+        cell_str = f'{cells/1e6:.0f}M'
+    else:
+        cell_str = f'{cells/1e3:.0f}K'
+
+    print(f'  ══════════════════════════════════════')
+    print(f'  SAVANNA TILE SERVER')
+    print(f'  Grid:     {rec.width} × {rec.height} ({cell_str} cells)')
+    print(f'  Frames:   {rec.frame_count}')
+    print(f'  Display:  {args.display}×{args.display} (downsampled)')
+    print(f'  Serve:    {serve_dir}')
+    print(f'  ──────────────────────────────────────')
+    print(f'  Tile viewer:    http://localhost:{args.port}/')
+    print(f'  Savanna Live:   http://localhost:{args.port}/savanna_live.html')
+    print(f'  ══════════════════════════════════════')
 
     TileHandler.recording = rec
     TileHandler.viewer_html = VIEWER_HTML
+    TileHandler.serve_dir = serve_dir
+    TileHandler.display_width = args.display
+    TileHandler.display_height = args.display
 
-    httpd = HTTPServer(('localhost', args.port), TileHandler)
+    httpd = ThreadedHTTP(('localhost', args.port), TileHandler)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
