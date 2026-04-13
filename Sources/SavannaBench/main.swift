@@ -39,6 +39,8 @@ func bench(_ w: Int, _ ticks: Int, _ label: String) {
 bench(1024, 100, "1M  ")
 bench(2048, 50,  "4M  ")
 bench(4096, 20,  "16M ")
+bench(8192, 10,  "64M ")
+bench(16384, 5,  "256M")
 
 print("  ──────────────────────────────────────────")
 print("")
