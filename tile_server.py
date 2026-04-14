@@ -45,72 +45,144 @@ PALETTE = np.array([
 
 
 class Recording:
-    """Manages access to recorded frames on disk."""
+    """Manages access to recorded frames on disk.
+
+    Supports two modes:
+    1. Single-tile: rec_dir contains frame_*.bin files directly
+    2. Multi-tile: rec_dir contains tile_X_Y/ subdirectories (100B mode)
+       Virtual world = tiles_x * tile_w × tiles_y * tile_h
+    """
 
     def __init__(self, rec_dir: str):
         self.rec_dir = Path(rec_dir)
         self.meta = self._load_meta()
-        self.width = self.meta['width']
-        self.height = self.meta['height']
-        self.frame_count = self.meta['frame_count']
+        self.multi_tile = 'tiles_x' in self.meta
+
+        if self.multi_tile:
+            self.tiles_x = self.meta['tiles_x']
+            self.tiles_y = self.meta['tiles_y']
+            self.tile_w = self.meta['tile_width']
+            self.tile_h = self.meta['tile_height']
+            self.width = self.tiles_x * self.tile_w
+            self.height = self.tiles_y * self.tile_h
+            self.frame_count = self.meta.get('ticks_per_tile', 5)
+        else:
+            self.tiles_x = 1
+            self.tiles_y = 1
+            self.tile_w = self.meta['width']
+            self.tile_h = self.meta['height']
+            self.width = self.meta['width']
+            self.height = self.meta['height']
+            self.frame_count = self.meta['frame_count']
+
         self.frame_bytes = self.width * self.height
-        self._frame_cache = {}
+        self._tile_cache = {}
         self._lock = Lock()
 
-        # Memory-map the frames file if it exists
+        # Memory-map for single-tile mode
         frames_path = self.rec_dir / 'frames.bin'
-        if frames_path.exists():
+        if not self.multi_tile and frames_path.exists():
             self._frames_file = open(frames_path, 'rb')
             self._frames_mmap = mmap.mmap(
                 self._frames_file.fileno(), 0, access=mmap.ACCESS_READ
             )
         else:
-            # Individual frame files
             self._frames_mmap = None
 
     def _load_meta(self) -> dict:
         meta_path = self.rec_dir / 'meta.json'
         if meta_path.exists():
             return json.loads(meta_path.read_text())
-        # Auto-detect from frame files
         frames = sorted(self.rec_dir.glob('frame_*.bin'))
         if not frames:
             raise FileNotFoundError(f'No frames in {self.rec_dir}')
         size = frames[0].stat().st_size
-        # Guess square grid
         side = int(size ** 0.5)
         return {'width': side, 'height': side, 'frame_count': len(frames)}
 
+    def _load_tile_frame(self, tx: int, ty: int, frame_idx: int) -> np.ndarray:
+        """Load one tile's frame, with caching."""
+        cache_key = (tx, ty, frame_idx)
+        with self._lock:
+            if cache_key in self._tile_cache:
+                return self._tile_cache[cache_key]
+
+        tile_dir = self.rec_dir / f'tile_{tx}_{ty}'
+        path = tile_dir / f'frame_{frame_idx:06d}.bin'
+        if not path.exists():
+            arr = np.zeros((self.tile_h, self.tile_w), dtype=np.uint8)
+        else:
+            arr = np.fromfile(path, dtype=np.uint8).reshape(self.tile_h, self.tile_w)
+
+        with self._lock:
+            self._tile_cache[cache_key] = arr
+            if len(self._tile_cache) > 10:
+                oldest = min(self._tile_cache.keys())
+                del self._tile_cache[oldest]
+        return arr
+
     def get_frame(self, frame_idx: int) -> np.ndarray:
-        """Load a frame as a 2D numpy array of entity bytes."""
+        """Load a frame as a 2D numpy array.
+
+        For multi-tile: returns a downsampled composite (max 4096×4096).
+        For single-tile: returns the frame directly.
+        """
         frame_idx = max(0, min(frame_idx, self.frame_count - 1))
 
-        with self._lock:
-            if frame_idx in self._frame_cache:
-                return self._frame_cache[frame_idx]
+        if not self.multi_tile:
+            with self._lock:
+                if frame_idx in self._tile_cache:
+                    return self._tile_cache[('single', 0, frame_idx)]
 
-        if self._frames_mmap:
-            offset = frame_idx * self.frame_bytes
-            data = self._frames_mmap[offset:offset + self.frame_bytes]
-            arr = np.frombuffer(data, dtype=np.uint8).reshape(
-                self.height, self.width
-            )
-        else:
-            path = self.rec_dir / f'frame_{frame_idx:06d}.bin'
-            if not path.exists():
-                return np.zeros((self.height, self.width), dtype=np.uint8)
-            arr = np.fromfile(path, dtype=np.uint8).reshape(
-                self.height, self.width
-            )
+            if self._frames_mmap:
+                offset = frame_idx * self.tile_w * self.tile_h
+                data = self._frames_mmap[offset:offset + self.tile_w * self.tile_h]
+                arr = np.frombuffer(data, dtype=np.uint8).reshape(self.tile_h, self.tile_w)
+            else:
+                path = self.rec_dir / f'frame_{frame_idx:06d}.bin'
+                if not path.exists():
+                    return np.zeros((self.tile_h, self.tile_w), dtype=np.uint8)
+                arr = np.fromfile(path, dtype=np.uint8).reshape(self.tile_h, self.tile_w)
+            return arr
 
-        # Cache last 5 frames
-        with self._lock:
-            self._frame_cache[frame_idx] = arr
-            if len(self._frame_cache) > 5:
-                oldest = min(self._frame_cache.keys())
-                del self._frame_cache[oldest]
+        # Multi-tile: build downsampled composite
+        # Target: max 4096×4096 for the full world view
+        max_display = 4096
+        step_x = max(1, self.width // max_display)
+        step_y = max(1, self.height // max_display)
+        dw = self.width // step_x
+        dh = self.height // step_y
 
-        return arr
+        # Trophic priority for max-pooling
+        TROPHIC = np.array([0, 2, 4, 5, 3], dtype=np.uint8)
+        INVERSE = np.array([0, 1, 4, 2, 3], dtype=np.uint8)
+
+        result = np.zeros((dh, dw), dtype=np.uint8)
+
+        tile_dw = self.tile_w // step_x
+        tile_dh = self.tile_h // step_y
+
+        for ty in range(self.tiles_y):
+            for tx in range(self.tiles_x):
+                tile = self._load_tile_frame(tx, ty, frame_idx)
+                # Downsample this tile with trophic max-pooling
+                prioritized = TROPHIC[np.clip(tile, 0, 4)]
+                th = (self.tile_h // step_y) * step_y
+                tw = (self.tile_w // step_x) * step_x
+                blocks = prioritized[:th, :tw].reshape(
+                    th // step_y, step_y, tw // step_x, step_x
+                )
+                pooled = blocks.max(axis=(1, 3))
+                downsampled = INVERSE[np.clip(pooled, 0, 4)]
+
+                # Place into result
+                oy = ty * tile_dh
+                ox = tx * tile_dw
+                h = min(downsampled.shape[0], dh - oy)
+                w = min(downsampled.shape[1], dw - ox)
+                result[oy:oy+h, ox:ox+w] = downsampled[:h, :w]
+
+        return result
 
     def get_tile(self, frame_idx: int, x: int, y: int,
                  w: int, h: int, zoom: float) -> bytes:
@@ -138,12 +210,24 @@ class Recording:
         if region.size == 0:
             region = np.zeros((1, 1), dtype=np.uint8)
 
-        # Downsample if zoomed out
+        # Downsample if zoomed out — Trophic Max-Pooling
+        # Gemini fix: max() of ecological hierarchy, not stride-skip or mean
+        # LION(3)=5 > ZEBRA(2)=4 > WATER(4)=3 > GRASS(1)=2 > EMPTY(0)=1
+        # Guarantees rare apex predators survive extreme spatial compression
         if region.shape[0] > h or region.shape[1] > w:
-            # Block downsample: take every Nth pixel
             step_y = max(1, region.shape[0] // h)
             step_x = max(1, region.shape[1] // w)
-            region = region[::step_y, ::step_x]
+            # Map entity values to trophic priority
+            TROPHIC = np.array([0, 2, 4, 5, 3], dtype=np.uint8)  # [empty, grass, zebra, lion, water]
+            INVERSE = np.array([0, 1, 4, 2, 3], dtype=np.uint8)  # priority back to entity
+            prioritized = TROPHIC[np.clip(region, 0, 4)]
+            # Block max-pool
+            th = (region.shape[0] // step_y) * step_y
+            tw = (region.shape[1] // step_x) * step_x
+            blocks = prioritized[:th, :tw].reshape(th // step_y, step_y, tw // step_x, step_x)
+            pooled = blocks.max(axis=(1, 3))
+            # Map back to entity values
+            region = INVERSE[np.clip(pooled, 0, 4)]
 
         # Colorize
         rgba = PALETTE[np.clip(region, 0, 4)]
@@ -180,7 +264,7 @@ class TileHandler(BaseHTTPRequestHandler):
     viewer_html: str = ''
     serve_dir: str = '.'  # directory containing savanna_live.html etc.
     current_frame: int = 0
-    display_width: int = 2048  # downsample large grids to this for savanna_live.html
+    display_width: int = 4096  # downsample large grids to this for savanna_live.html
     display_height: int = 2048
 
     def do_GET(self):
@@ -222,11 +306,13 @@ class TileHandler(BaseHTTPRequestHandler):
         self.wfile.write(self.viewer_html.encode())
 
     def _serve_info(self):
+        rec = self.recording
         info = {
-            'width': self.recording.width,
-            'height': self.recording.height,
-            'frame_count': self.recording.frame_count,
-            'cells': self.recording.width * self.recording.height,
+            'width': rec.width,
+            'height': rec.height,
+            'frame_count': rec.frame_count,
+            'cells': rec.width * rec.height,
+            'total_cells': rec.meta.get('total_cells', rec.width * rec.height),
         }
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
@@ -286,18 +372,52 @@ class TileHandler(BaseHTTPRequestHandler):
         savanna_live.html reads this format natively.
         """
         rec = self.recording
-        # Cycle through frames on each request (auto-advance for playback)
+        # For multi-tile, serve pre-computed thumbnail (skip get_frame — too slow)
+        if rec.multi_tile:
+            cf = TileHandler.current_frame
+            TileHandler.current_frame = (cf + 1) % rec.frame_count
+            thumb_path = rec.rec_dir / f'thumbnail_frame_{cf:06d}.bin'
+            if thumb_path.exists():
+                payload = thumb_path.read_bytes()
+            else:
+                # Fallback: empty frame
+                dw, dh = 1024, 1024
+                header = struct.pack('<IIII', dw, dh, TileHandler.current_frame, 1)
+                payload = header + b'\x00' * (dw * dh)
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/octet-stream')
+            self.send_header('Content-Length', str(len(payload)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        # Single-tile path
         frame = rec.get_frame(TileHandler.current_frame)
         TileHandler.current_frame = (TileHandler.current_frame + 1) % rec.frame_count
-
         # Downsample if grid is larger than display size
         dw = min(rec.width, self.display_width)
         dh = min(rec.height, self.display_height)
         if rec.width > dw or rec.height > dh:
             step_x = rec.width // dw
             step_y = rec.height // dh
-            downsampled = frame[::step_y, ::step_x]
-            # Trim to exact display size
+            # Helicopter LOD: majority vote (most common entity per block)
+            # Then overlay: any zebra >5% → zebra, any lion >2% → lion
+            th = (rec.height // step_y) * step_y
+            tw = (rec.width // step_x) * step_x
+            blocks = frame[:th, :tw].reshape(th // step_y, step_y, tw // step_x, step_x)
+            flat = blocks.transpose(0, 2, 1, 3).reshape(th // step_y, tw // step_x, step_y * step_x)
+            # Majority vote via bincount
+            bh, bw, bs = flat.shape
+            downsampled = np.zeros((bh, bw), dtype=np.uint8)
+            for by in range(bh):
+                for bx in range(bw):
+                    downsampled[by, bx] = np.bincount(flat[by, bx], minlength=5).argmax()
+            # Overlay: zebra herds and lion prides visible even when not majority
+            zebra_frac = np.sum(flat == 2, axis=2) / bs
+            lion_frac = np.sum(flat == 3, axis=2) / bs
+            downsampled[zebra_frac > 0.03] = 2  # 3%+ zebra → visible
+            downsampled[lion_frac > 0.01] = 3    # 1%+ lion → visible
             downsampled = downsampled[:dh, :dw]
         else:
             downsampled = frame
