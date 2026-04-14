@@ -10,7 +10,7 @@ An ultra-scale spatial computation engine running on Apple Metal, featuring lock
 
 > The biology is the test workload. The engine is a spatial lattice compute machine.
 
-[**→ 100B Cell Playback (YouTube)**](https://youtu.be/6QiU7kUD3Os) | [**→ Interactive Presentation**](https://norayr-m.github.io/savanna-engine/) | [**→ About**](https://norayr-m.github.io/savanna-engine/about.html) | [**→ Benchmark**](BENCHMARK.md) | [**→ Morton Z-Curve: 2× faster at 1B cells**](https://norayr-m.github.io/savanna-engine/morton_charts.html) | [**→ Live Demo**](https://norayr-m.github.io/savanna-engine/demo.html)
+[**→ 1B Cell Playback (no server, 5.4 MB)**](https://norayr-m.github.io/savanna-engine/playback.html) | [**→ 100B Cell Playback (YouTube)**](https://youtu.be/6QiU7kUD3Os) | [**→ Interactive Presentation**](https://norayr-m.github.io/savanna-engine/) | [**→ About**](https://norayr-m.github.io/savanna-engine/about.html) | [**→ Benchmark**](BENCHMARK.md) | [**→ Morton Z-Curve: 2× faster at 1B cells**](https://norayr-m.github.io/savanna-engine/morton_charts.html)
 
 ## What This Is
 
