@@ -38,8 +38,8 @@ public struct SavannaState {
     public mutating func randomInit(
         grid: HexGrid,
         grassFrac: Double = 0.80,
-        zebraFrac: Double = 0.02,
-        lionFrac: Double = 0.00004,  // ~40 lions on 1M grid
+        zebraFrac: Double = 0.005,  // sparse — see dynamics not blobs
+        lionFrac: Double = 0.00025,  // ~250 lions = ~62 prides
         seed: UInt64 = 42
     ) {
         var rng = SplitMix64(seed: seed)
@@ -110,50 +110,145 @@ public struct SavannaState {
             }
         }
 
-        // ── Place zebras in HERDS ────────────────────
-        let numHerds = max(5, Int(Double(n) * zebraFrac / 200))
+        // ── Place zebras TOP-LEFT, lions BEHIND ────────────
         let zebraTotal = Int(Double(n) * zebraFrac)
-        var zebrasPlaced = 0
-        var herdCenters: [(Int, Int)] = []
+        let cooldownZ = 365  // must match REPRO_COOLDOWN_ZEBRA in metal
+        let reproAgeZ = 730  // must match REPRO_AGE_ZEBRA in metal
+        let maxAgeZ   = 32000
+        // Zebras: one massive herd, position varies by seed
+        let zCx = width / 4 + Int(rng.next() % UInt64(width / 2))
+        let zCy = height / 4 + Int(rng.next() % UInt64(height / 2))
+        let spread = width / 4  // big spread
 
-        for _ in 0..<numHerds {
-            let cx = Int(rng.next() % UInt64(width))
-            let cy = Int(rng.next() % UInt64(height))
-            herdCenters.append((cx, cy))
-            let herdFacing = Int8(rng.next() % 6)
-            let herdSize = zebraTotal / numHerds
+        for _ in 0..<zebraTotal {
+            let dx = Int(rng.next() % UInt64(spread)) - spread/2
+                   + Int(rng.next() % UInt64(spread)) - spread/2
+            let dy = Int(rng.next() % UInt64(spread)) - spread/2
+                   + Int(rng.next() % UInt64(spread)) - spread/2
+            let x = min(max(0, zCx + dx), width - 1)
+            let y = min(max(0, zCy + dy), height - 1)
+            let m = mi(x, y)
+            if entity[m] == Entity.empty.rawValue || entity[m] == Entity.grass.rawValue {
+                entity[m] = Entity.zebra.rawValue
+                energy[m] = Int16(150 + Int(rng.next() % 101))
+                ternary[m] = Int8(rng.next() % 2)
+                orientation[m] = Int8(rng.next() % 6)
+                let age = reproAgeZ + Int(rng.next() % UInt64(maxAgeZ - reproAgeZ))
+                let phase = Int(rng.next() % UInt64(cooldownZ))
+                let adjustedAge = age - (age % cooldownZ) + phase
+                gauge[m] = Int16(clamping: adjustedAge)
+            }
+        }
 
-            for _ in 0..<herdSize {
-                let dx = Int(rng.next() % 21) - 10 + Int(rng.next() % 21) - 10
-                let dy = Int(rng.next() % 21) - 10 + Int(rng.next() % 21) - 10
-                let x = min(max(0, cx + dx), width - 1)
-                let y = min(max(0, cy + dy), height - 1)
+        // ── Place lions as SEPARATED PRIDES ──────────────
+        // Each pride = 4 lions clustered tight. Prides spaced >50 hex apart
+        // (outside scent cutoff ~30 hex). Distributed across grid.
+        let lionTotal = Int(Double(n) * lionFrac)
+        let cooldownL = 2920
+        let reproAgeL = 2920
+        let maxAgeL   = 18000
+        let prideSize = 4
+        let numPrides = max(1, lionTotal / prideSize)
+        let prideSpacing = 50  // hex between pride centers (> scent range)
+
+        // Grid of pride positions, evenly spaced
+        let pridesPerSide = max(1, Int(sqrt(Double(numPrides))))
+        let stepX = width / (pridesPerSide + 1)
+        let stepY = height / (pridesPerSide + 1)
+        // Zebra center for facing calculation
+        let zCenterX = width * 3 / 8
+        let zCenterY = height * 3 / 8
+
+        // Angle to hex direction: 0=NE,1=N,2=NW,3=SW,4=S,5=SE
+        func facingToward(_ fromX: Int, _ fromY: Int, _ toX: Int, _ toY: Int) -> Int8 {
+            let dx = Double(toX - fromX)
+            let dy = Double(toY - fromY)
+            // atan2 gives angle, map to 6 hex dirs (y-down screen coords)
+            let angle = atan2(dy, dx)  // radians, 0=east, pi/2=south
+            // Hex dirs: 0=NE(~-30°), 1=N(-90°), 2=NW(~-150°), 3=SW(~150°), 4=S(90°), 5=SE(~30°)
+            let deg = angle * 180.0 / .pi
+            if deg >= -60 && deg < 0    { return 0 }  // NE
+            if deg >= -120 && deg < -60 { return 1 }  // N
+            if deg >= -180 && deg < -120 { return 2 } // NW
+            if deg >= 120 && deg <= 180 { return 3 }  // SW
+            if deg >= 60 && deg < 120   { return 4 }  // S
+            return 5                                    // SE
+        }
+
+        var lionsPlaced = 0
+        for pi in 0..<numPrides {
+            if lionsPlaced >= lionTotal { break }
+            let gridRow = pi / pridesPerSide
+            let gridCol = pi % pridesPerSide
+            let pcx = stepX * (gridCol + 1) + Int(rng.next() % UInt64(max(1, stepX/4))) - stepX/8
+            let pcy = stepY * (gridRow + 1) + Int(rng.next() % UInt64(max(1, stepY/4))) - stepY/8
+            let prideFacing = facingToward(pcx, pcy, zCenterX, zCenterY)
+
+            // Place 4 lions in tight cluster (radius 2)
+            for li in 0..<prideSize {
+                if lionsPlaced >= lionTotal { break }
+                let dx = Int(rng.next() % 5) - 2
+                let dy = Int(rng.next() % 5) - 2
+                let x = min(max(0, pcx + dx), width - 1)
+                let y = min(max(0, pcy + dy), height - 1)
                 let m = mi(x, y)
                 if entity[m] == Entity.empty.rawValue || entity[m] == Entity.grass.rawValue {
-                    entity[m] = Entity.zebra.rawValue
-                    energy[m] = Int16.random(in: 100...250)
-                    ternary[m] = Int8.random(in: 0...1)
-                    orientation[m] = herdFacing
-                    gauge[m] = Int16(rng.next() % UInt64(32000))
-                    zebrasPlaced += 1
+                    entity[m] = Entity.lion.rawValue
+                    energy[m] = Int16(200 + Int(rng.next() % 101))
+                    ternary[m] = 1
+                    orientation[m] = prideFacing  // face toward zebras
+                    // Stagger ages within pride: lion 0=young, 1=mid-young, 2=mid-old, 3=old
+                    let ageSlot = li  // 0,1,2,3
+                    let slotSize = (maxAgeL - reproAgeL) / prideSize
+                    let age = reproAgeL + ageSlot * slotSize + Int(rng.next() % UInt64(max(1, slotSize)))
+                    // Spread repro phase within each slot
+                    let phase = (ageSlot * cooldownL / prideSize) + Int(rng.next() % UInt64(max(1, cooldownL / prideSize)))
+                    let adjustedAge = age - (age % cooldownL) + (phase % cooldownL)
+                    gauge[m] = Int16(clamping: adjustedAge)
+                    lionsPlaced += 1
                 }
             }
         }
+    }
 
-        // ── Place lions DISPERSED ────────────────────
-        let lionTotal = Int(Double(n) * lionFrac)
-        for _ in 0..<lionTotal {
-            let x = Int(rng.next() % UInt64(width))
-            let y = Int(rng.next() % UInt64(height))
-            let m = mi(x, y)
-            if entity[m] == Entity.empty.rawValue || entity[m] == Entity.grass.rawValue {
-                entity[m] = Entity.lion.rawValue
-                energy[m] = Int16.random(in: 120...250)
-                ternary[m] = 1
-                orientation[m] = Int8(rng.next() % 6)
-                gauge[m] = Int16(rng.next() % UInt64(18000))
-            }
+    // ── Serialization for tiled simulation ────────────────
+
+    /// Save state to binary file (row-major order).
+    public func save(to path: String) throws {
+        var data = Data()
+        var w = UInt32(width), h = UInt32(height)
+        data.append(Data(bytes: &w, count: 4))
+        data.append(Data(bytes: &h, count: 4))
+        entity.withUnsafeBytes { data.append(Data($0)) }
+        energy.withUnsafeBytes { data.append(Data($0)) }
+        ternary.withUnsafeBytes { data.append(Data($0)) }
+        gauge.withUnsafeBytes { data.append(Data($0)) }
+        orientation.withUnsafeBytes { data.append(Data($0)) }
+        try data.write(to: URL(fileURLWithPath: path))
+    }
+
+    /// Load state from binary file.
+    public static func load(from path: String) -> SavannaState? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+        var offset = 0
+        func read<T>(_ type: T.Type, count: Int) -> [T] {
+            let size = count * MemoryLayout<T>.size
+            guard offset + size <= data.count else { return [] }
+            let result = data[offset..<offset+size].withUnsafeBytes { Array($0.bindMemory(to: T.self)) }
+            offset += size
+            return result
         }
+        guard let w = read(UInt32.self, count: 1).first,
+              let h = read(UInt32.self, count: 1).first else { return nil }
+        let width = Int(w), height = Int(h), n = width * height
+        var state = SavannaState(width: width, height: height)
+        state.entity = read(Int8.self, count: n)
+        state.energy = read(Int16.self, count: n)
+        state.ternary = read(Int8.self, count: n)
+        state.gauge = read(Int16.self, count: n)
+        state.orientation = read(Int8.self, count: n)
+        guard state.entity.count == n else { return nil }
+        return state
     }
 
     public func census() -> SavannaCensus {

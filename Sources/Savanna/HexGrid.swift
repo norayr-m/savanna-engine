@@ -155,6 +155,85 @@ public struct HexGrid {
         return count
     }
 
+    // ── Serialization: save/load grid to skip 30s rebuild ──────
+
+    /// Save grid topology to binary file. ~28 bytes per node for 1B grid = ~28 GB.
+    /// For smaller grids (1M = 28 MB, 16M = 448 MB) this is fast.
+    public func save(to path: String) throws {
+        var data = Data()
+        // Header: width, height (8 bytes)
+        var w = UInt32(width), h = UInt32(height)
+        data.append(Data(bytes: &w, count: 4))
+        data.append(Data(bytes: &h, count: 4))
+        // Neighbors: n*6 Int32 values
+        neighbors.withUnsafeBytes { data.append(Data($0)) }
+        // mortonOrder: n UInt32 values
+        mortonOrder.withUnsafeBytes { data.append(Data($0)) }
+        // mortonToNode: n Int32 values
+        mortonToNode.withUnsafeBytes { data.append(Data($0)) }
+        // mortonRank: n Int32 values
+        mortonRank.withUnsafeBytes { data.append(Data($0)) }
+        // colors: n UInt8 values
+        colors.withUnsafeBytes { data.append(Data($0)) }
+        // colorGroups: 7 groups, each prefixed by count
+        for g in colorGroups {
+            var count = UInt32(g.count)
+            data.append(Data(bytes: &count, count: 4))
+            g.withUnsafeBytes { data.append(Data($0)) }
+        }
+        try data.write(to: URL(fileURLWithPath: path))
+    }
+
+    /// Load grid from binary file. Returns nil if file doesn't match expected size.
+    public static func load(from path: String) -> HexGrid? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+        var offset = 0
+        func read<T>(_ type: T.Type, count: Int = 1) -> [T] {
+            let size = count * MemoryLayout<T>.size
+            guard offset + size <= data.count else { return [] }
+            let result = data[offset..<offset+size].withUnsafeBytes { ptr in
+                Array(ptr.bindMemory(to: T.self))
+            }
+            offset += size
+            return result
+        }
+        guard let w = read(UInt32.self).first,
+              let h = read(UInt32.self).first else { return nil }
+        let width = Int(w), height = Int(h)
+        let n = width * height
+        let nb = read(Int32.self, count: n * 6)
+        guard nb.count == n * 6 else { return nil }
+        let mo = read(UInt32.self, count: n)
+        let mtn = read(Int32.self, count: n)
+        let mr = read(Int32.self, count: n)
+        let col = read(UInt8.self, count: n)
+        var cg = [[Int32]]()
+        for _ in 0..<7 {
+            guard let count = read(UInt32.self).first else { return nil }
+            cg.append(read(Int32.self, count: Int(count)))
+        }
+        return HexGrid(width: width, height: height,
+                       neighbors: nb, mortonOrder: mo,
+                       mortonToNode: mtn, mortonRank: mr,
+                       colors: col, colorGroups: cg)
+    }
+
+    /// Private init for deserialization.
+    private init(width: Int, height: Int,
+                 neighbors: [Int32], mortonOrder: [UInt32],
+                 mortonToNode: [Int32], mortonRank: [Int32],
+                 colors: [UInt8], colorGroups: [[Int32]]) {
+        self.width = width
+        self.height = height
+        self.nodeCount = width * height
+        self.neighbors = neighbors
+        self.mortonOrder = mortonOrder
+        self.mortonToNode = mortonToNode
+        self.mortonRank = mortonRank
+        self.colors = colors
+        self.colorGroups = colorGroups
+    }
+
     /// Verify 7-coloring: no two adjacent nodes share a color. Operates in Morton space.
     public func verifyColoring() -> Bool {
         for i in 0..<nodeCount {

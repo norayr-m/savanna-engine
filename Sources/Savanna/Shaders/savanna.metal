@@ -16,8 +16,8 @@ constant int REPRO_AGE_ZEBRA      = 730;    // 6 months — fast recovery from t
 constant int REPRO_AGE_LION       = 2920;   // 2 years
 constant int REPRO_COOLDOWN_ZEBRA = 365;    // 3 months between foals — fast recovery
 constant int REPRO_COOLDOWN_LION  = 2920;   // 2 years between litters
-constant int FOOD_ENERGY     = 25;    // Gemini: lower from 30
-constant int KILL_ENERGY     = 200;   // must close energy budget on spatial grid (was 150)
+constant int FOOD_ENERGY     = 150;   // very rich grass
+constant int KILL_ENERGY     = 8000;  // one kill fills pride (4 lionesses × 2000)
 constant int SPRINT_COST     = 5;     // tax sprint but don't bankrupt (was 10)
 
 constant int BMR_ZEBRA_ACTIVE   = 4;
@@ -32,13 +32,14 @@ constant int TORPOR_DRAIN_PERIOD = 128; // 1 energy per 128 ticks. Survives 3.5y
 
 constant int HUNGRY_THRESH   = 80;
 constant int STARVING_THRESH = 40;
-constant int SATIATION_THRESH = 150;   // Type II. Lions above this don't hunt.
+constant int SATIATION_THRESH = 8000;  // Type II. Pride full = don't hunt.
 
 // Birthday-window reproduction: breed on (age % cooldown == 0) tick
 // Birthday-window reproduction. Energy gate is per-species.
-constant int REPRO_ENERGY_ZEBRA = 150;  // zebra: well-fed grazer can breed
+constant int REPRO_ENERGY_ZEBRA = 120;  // zebra: lower threshold for faster recovery
 constant int REPRO_ENERGY_LION  = 200;  // lion: needs a recent kill (max energy = 255)
-constant int BIRTH_ENERGY      = 40;
+constant int BIRTH_ENERGY_ZEBRA = 50;   // foal starts with 50, mother loses 80
+constant int BIRTH_ENERGY_LION  = 970;  // 8000/8 - thermo = exactly 8 cubs per kill
 constant int REPRO_THERMO_LOSS = 30;   // light per-cub cost — non-lethal breeding
 
 // Birth radius: how far offspring can appear from parent (in neighbor hops)
@@ -69,7 +70,11 @@ constant float WATER_DRINK_THRESH = 0.001;  // very faint water scent = hydrated
 constant int   THIRST_ACCEL_PERIOD = 40;    // minimal: 1 energy per 40 ticks when fully dry
 constant float WATER_GRASS_BOOST = 3.0;     // grass growth multiplier near water
 
-inline int16_t clamp16(int x) { return int16_t(clamp(x, 0, 255)); }
+constant int MAX_ENERGY_ZEBRA = 500;
+constant int MAX_ENERGY_LION  = 8000;  // pride of 4 lionesses
+inline int16_t clamp_z(int x) { return int16_t(clamp(x, 0, MAX_ENERGY_ZEBRA)); }
+inline int16_t clamp_l(int x) { return int16_t(clamp(x, 0, MAX_ENERGY_LION)); }
+inline int16_t clamp16(int x) { return int16_t(clamp(x, 0, 8000)); }  // fallback for grass
 
 // Hex direction vectors for flocking alignment (screen coords: y-down, scaled ×10)
 // Consistent with HexGrid neighbor ordering across even/odd columns.
@@ -140,6 +145,7 @@ kernel void tick_phase(
     constant uint32_t&    tick        [[ buffer(11) ]],
     constant uint32_t&    is_day      [[ buffer(12) ]],
     constant uint32_t&    group_size  [[ buffer(13) ]],
+    constant uint32_t&    main_tile_n [[ buffer(14) ]],  // Halo Protocol: cells beyond this are read-only
     uint                  gid         [[ thread_position_in_grid ]]
 ) {
     if (gid >= group_size) return;
@@ -151,12 +157,13 @@ kernel void tick_phase(
 
     // Grass: stays forever unless eaten. Gauge tracks maturity for food value.
     if (my_entity == GRASS) {
-        if (is_day) gauge[node] = clamp16(int(gauge[node]) + 1);
+        if (is_day && (tick % 4u == 0u)) gauge[node] = clamp16(int(gauge[node]) + 1);
         return;
     }
 
     int16_t my_energy = energy[node];
     int16_t my_age = gauge[node];
+    int my_max_e = (my_entity == ZEBRA) ? MAX_ENERGY_ZEBRA : MAX_ENERGY_LION;
     int8_t my_facing = orientation[node];
 
     // ── BASE ANIMAL: age + death ──────────────────────────
@@ -185,7 +192,7 @@ kernel void tick_phase(
     if (!hydrated && tick % THIRST_ACCEL_PERIOD == 0) {
         // Dehydration: lose extra energy (gentle pull, not death sentence)
         my_energy -= 1;
-        energy[node] = clamp16(int(my_energy));
+        energy[node] = int16_t(clamp(int(my_energy), 0, my_max_e));
         if (my_energy <= 0) {
             entity[node] = EMPTY; energy[node] = 0; ternary[node] = 0;
             gauge[node] = 0; orientation[node] = 0;
@@ -209,7 +216,7 @@ kernel void tick_phase(
             if (ts == -1 && tick % TORPOR_DRAIN_PERIOD == 0) bmr = 1;
         }
         my_energy -= int16_t(bmr);
-        energy[node] = clamp16(int(my_energy));
+        energy[node] = int16_t(clamp(int(my_energy), 0, my_max_e));
         if (my_energy <= 0) {
             entity[node] = EMPTY; energy[node] = 0; ternary[node] = 0;
             gauge[node] = 0; orientation[node] = 0;
@@ -228,18 +235,20 @@ kernel void tick_phase(
 
         // Litter size: zebra=1, lion=2-3 (hash-determined)
         int litter = 1;  // zebra: 1 foal
-        if (my_entity == LION) litter = 2;  // lion: always 2 cubs (no random 3 — maternal death)
+        if (my_entity == LION) litter = 8;  // pride: 4 females × 2 cubs
 
         uint dir_off = (uint(node) * 2654435761u ^ tick) % 6u;
         int born = 0;
 
-        for (int cub = 0; cub < litter && my_energy >= repro_e; cub++) {
+        int be = (my_entity == ZEBRA) ? BIRTH_ENERGY_ZEBRA : BIRTH_ENERGY_LION;
+        int birth_cost = be + REPRO_THERMO_LOSS;
+        for (int cub = 0; cub < litter && my_energy >= birth_cost; cub++) {
             int32_t birth_cell = -1;
 
             // Radius 1: check immediate neighbors
             for (int dd = 0; dd < 6; dd++) {
                 int32_t nb = neighbors[node * 6 + int((dd + dir_off + cub) % 6u)];
-                if (nb >= 0 && (entity[nb] == EMPTY || (entity[nb] == GRASS && my_entity == LION))) {
+                if (nb >= 0 && (entity[nb] == EMPTY || entity[nb] == GRASS)) {
                     birth_cell = nb; break;
                 }
             }
@@ -251,7 +260,7 @@ kernel void tick_phase(
                     if (nb1 < 0) continue;
                     for (int dd2 = 0; dd2 < 6; dd2++) {
                         int32_t nb2 = neighbors[nb1 * 6 + int((dd2 + dir_off) % 6u)];
-                        if (nb2 >= 0 && nb2 != int32_t(node) && entity[nb2] == EMPTY) {
+                        if (nb2 >= 0 && nb2 != int32_t(node) && (entity[nb2] == EMPTY || entity[nb2] == GRASS)) {
                             birth_cell = nb2; break;
                         }
                     }
@@ -259,15 +268,22 @@ kernel void tick_phase(
                 }
             }
 
+            // Halo guard: cannot birth into halo cells
+            if (birth_cell >= 0 && uint32_t(birth_cell) >= main_tile_n) birth_cell = -1;
             if (birth_cell >= 0) {
                 if (entity[birth_cell] == GRASS) gauge[birth_cell] = -30; // trample
                 entity[birth_cell] = my_entity;
-                energy[birth_cell] = int16_t(BIRTH_ENERGY);
+                energy[birth_cell] = int16_t(be);
                 ternary[birth_cell] = 1;
-                gauge[birth_cell] = 0;
+                // Cubs get spread ages: uniform 0..repro_age → staggered maturity
+                {
+                    uint ch = uint(birth_cell) * 2654435761u ^ tick * 374761393u ^ uint(cub) * 668265263u;
+                    ch ^= ch >> 16; ch *= 2246822519u; ch ^= ch >> 13;
+                    gauge[birth_cell] = int16_t(ch % uint(repro_age));
+                }
                 orientation[birth_cell] = int8_t((int(my_facing) + cub + 1) % 6);
-                my_energy -= int16_t(BIRTH_ENERGY + REPRO_THERMO_LOSS);
-                energy[node] = clamp16(int(my_energy));
+                my_energy -= int16_t(be + REPRO_THERMO_LOSS);
+                energy[node] = int16_t(clamp(int(my_energy), 0, my_max_e));
                 born++;
             }
         }
@@ -438,14 +454,14 @@ kernel void tick_phase(
             for (int dd = 0; dd < 6; dd++) {
                 if (neighbors[node * 6 + dd] == target) { new_facing = int8_t(dd); break; }
             }
-        } else if (is_day && sight_best_food >= 0 && my_energy < 200) {
+        } else if (is_day && sight_best_food >= 0 && my_energy < 300) {
             // P3: SEE GRASS — walk toward it (day only, only when hungry)
             new_ternary = 1;  // ACTIVE: grazing
             target = sight_best_food;
             for (int dd = 0; dd < 6; dd++) {
                 if (neighbors[node * 6 + dd] == target) { new_facing = int8_t(dd); break; }
             }
-        } else if (is_day && smell_target >= 0 && best_scent > 0.1 && my_energy < 200) {
+        } else if (is_day && smell_target >= 0 && best_scent > 0.1 && my_energy < 300) {
             // P4: SMELL GRASS — follow gradient (day only, hungry)
             new_ternary = 1;  // ACTIVE: foraging
             target = smell_target;
@@ -486,12 +502,12 @@ kernel void tick_phase(
                 new_facing = int8_t(best_dir);
 
                 int32_t fwd = neighbors[node * 6 + best_dir];
-                if (fwd >= 0 && (entity[fwd] == EMPTY || (entity[fwd] == GRASS && my_energy < 200 && is_day))) {
+                if (fwd >= 0 && (entity[fwd] == EMPTY || (entity[fwd] == GRASS && my_energy < 300 && is_day))) {
                     target = fwd;
                 } else {
                     int8_t alt = int8_t((best_dir + ((tick % 2 == 0) ? 1 : 5)) % 6);
                     int32_t alt_nb = neighbors[node * 6 + int(alt)];
-                    if (alt_nb >= 0 && (entity[alt_nb] == EMPTY || (entity[alt_nb] == GRASS && my_energy < 200 && is_day))) {
+                    if (alt_nb >= 0 && (entity[alt_nb] == EMPTY || (entity[alt_nb] == GRASS && my_energy < 300 && is_day))) {
                         target = alt_nb; new_facing = alt;
                     }
                 }
@@ -552,8 +568,14 @@ kernel void tick_phase(
                         }
                     }
                 }
-            } else if (lion_hungry && smell_target >= 0 && best_scent > 0.08) {
-                // SMELL prey — follow gradient (0.08 = ~15 hex range, density-dependent)
+            } else if (lion_hungry && smell_target >= 0 && best_scent > 0.01) {
+                // SMELL prey — follow gradient (0.01 = ~30 hex range, long-range tracking)
+                target = smell_target;
+                for (int dd = 0; dd < 6; dd++) {
+                    if (neighbors[node * 6 + dd] == target) { new_facing = int8_t(dd); break; }
+                }
+            } else if (!lion_hungry && smell_target >= 0 && best_scent > 0.01) {
+                // SATED but smell prey — slow drift toward scent (patrol)
                 target = smell_target;
                 for (int dd = 0; dd < 6; dd++) {
                     if (neighbors[node * 6 + dd] == target) { new_facing = int8_t(dd); break; }
@@ -561,25 +583,58 @@ kernel void tick_phase(
             } else {
                 // NO PREY DETECTED — lions ALWAYS move. Never sit idle.
 
-                // TERRITORIAL REPULSION: lions push away from other lions
-                if (hear_lion > 0 && target < 0) {
-                    // Find nearest lion, move opposite
+                // 1. Follow zebra scent if any
+                if (target < 0) {
+                    float best_zs = 0; int32_t best_zt = -1; int8_t best_zd = my_facing;
                     for (int dd = 0; dd < 6; dd++) {
                         int32_t nb = neighbors[node * 6 + dd];
-                        if (nb >= 0 && entity[nb] == LION) {
-                            int8_t away = int8_t((dd + 3) % 6);
-                            int32_t away_nb = neighbors[node * 6 + int(away)];
-                            if (away_nb >= 0 && (entity[away_nb] == EMPTY || entity[away_nb] == GRASS)) {
-                                target = away_nb; new_facing = away;
+                        if (nb < 0 || entity[nb] == LION) continue;
+                        float zs = scent_zebra[nb];
+                        if (zs > best_zs && (entity[nb] == EMPTY || entity[nb] == GRASS)) {
+                            best_zs = zs; best_zt = nb; best_zd = int8_t(dd);
+                        }
+                    }
+                    if (best_zt >= 0 && best_zs > 0.001) {
+                        target = best_zt; new_facing = best_zd;
+                    }
+                }
+                // 2. PRIDE DYNAMICS: cubs stay, adults attract up to 8, then split
+                bool is_cub = (my_age < REPRO_AGE_LION);
+                if (target < 0 && hear_lion > 0) {
+                    if (hear_lion < 8 || is_cub) {
+                        // ATTRACT: cubs always stick, adults until pride=8
+                        for (int dd = 0; dd < 6; dd++) {
+                            int32_t nb = neighbors[node * 6 + dd];
+                            if (nb >= 0 && entity[nb] == LION) {
+                                for (int sd = 0; sd < 6; sd++) {
+                                    int8_t td = int8_t((dd + sd) % 6);
+                                    int32_t tnb = neighbors[node * 6 + int(td)];
+                                    if (tnb >= 0 && (entity[tnb] == EMPTY || entity[tnb] == GRASS)) {
+                                        target = tnb; new_facing = td; break;
+                                    }
+                                }
+                                break;
                             }
-                            break;
+                        }
+                    } else if (!is_cub) {
+                        // SPLIT: pride > 8 adults → young adults leave (opposite of nearest lion)
+                        for (int dd = 0; dd < 6; dd++) {
+                            int32_t nb = neighbors[node * 6 + dd];
+                            if (nb >= 0 && entity[nb] == LION) {
+                                int8_t away = int8_t((dd + 3) % 6);
+                                int32_t away_nb = neighbors[node * 6 + int(away)];
+                                if (away_nb >= 0 && (entity[away_nb] == EMPTY || entity[away_nb] == GRASS)) {
+                                    target = away_nb; new_facing = away;
+                                }
+                                break;
+                            }
                         }
                     }
                 }
 
                 // Strategy: Lévy flight biased toward water.
                 if (target >= 0) {
-                    // Already moving away from rival — done
+                    // Moving with pride or toward pride
                 } else if (at_water) {
                     // AT WATER: patrol around the edge — try all 6 directions
                     new_ternary = 0;  // RESTING: conserving energy at water
@@ -597,26 +652,25 @@ kernel void tick_phase(
                         if (neighbors[node * 6 + dd] == target) { new_facing = int8_t(dd); break; }
                     }
                 } else {
-                    // STATELESS LÉVY FLIGHT: power-law probability of keeping direction
-                    // 85% chance keep walking straight, 15% pick new direction
-                    // This produces heavy-tailed displacement without per-entity state
-                    uint lhash = (uint(node) * 2654435761u ^ tick * 374761393u) % 100u;
-                    if (lhash < 85) {
+                    // STATELESS LÉVY FLIGHT — decorrelated per node
+                    // Murmur-style hash: multiply, xor-shift, multiply
+                    uint h = uint(node) ^ (tick * 374761393u);
+                    h ^= h >> 16; h *= 2654435761u; h ^= h >> 13; h *= 1103515245u; h ^= h >> 16;
+                    if ((h % 100u) < 50) {
                         // Keep walking straight
                         int32_t fwd = neighbors[node * 6 + int(my_facing)];
                         if (fwd >= 0 && (entity[fwd] == EMPTY || entity[fwd] == GRASS)) {
                             target = fwd;
                         } else {
-                            // Blocked: turn
-                            int8_t alt = int8_t((int(my_facing) + ((tick % 2 == 0) ? 1 : 5)) % 6);
+                            int8_t alt = int8_t((int(my_facing) + ((h >> 8) % 2 == 0 ? 1 : 5)) % 6);
                             int32_t alt_nb = neighbors[node * 6 + int(alt)];
                             if (alt_nb >= 0 && (entity[alt_nb] == EMPTY || entity[alt_nb] == GRASS)) {
                                 target = alt_nb; new_facing = alt;
                             }
                         }
                     } else {
-                        // New random direction
-                        int8_t new_dir = int8_t((uint(node) * 2246822519u ^ tick * 1103515245u) % 6u);
+                        // New random direction — truly per-node
+                        int8_t new_dir = int8_t((h >> 4) % 6u);
                         new_facing = new_dir;
                         int32_t fwd = neighbors[node * 6 + int(new_dir)];
                         if (fwd >= 0 && (entity[fwd] == EMPTY || entity[fwd] == GRASS)) {
@@ -641,6 +695,8 @@ kernel void tick_phase(
     orientation[node] = new_facing;
 
     // ── EMIT ──────────────────────────────────────────────
+    // Halo Protocol: cannot move into halo cells (read-only ghost zone)
+    if (target >= 0 && uint32_t(target) >= main_tile_n) target = -1;
     if (target >= 0) {
         int8_t dest_entity = entity[target];
 
@@ -650,10 +706,10 @@ kernel void tick_phase(
                 // FLEEING: trample through grass, don't eat — survival over food
                 gauge[target] = -50;  // light trample (not as deep as grazing)
                 // Fall through to move execution below
-            } else if (my_energy < 200) {
+            } else if (my_energy < 300) {
                 // Hungry: eat the grass
-                int food_val = (gauge[target] >= 200) ? FOOD_ENERGY : FOOD_ENERGY / 4;
-                my_energy = clamp16(int(my_energy) + food_val);
+                int food_val = (gauge[target] >= 200) ? FOOD_ENERGY : FOOD_ENERGY / 2;
+                my_energy = int16_t(clamp(int(my_energy) + food_val, 0, my_max_e));
                 // Grass is consumed — mark as trampled
                 gauge[target] = -100;
             } else {
@@ -661,8 +717,8 @@ kernel void tick_phase(
                 return;
             }
         } else if (my_entity == LION && dest_entity == ZEBRA) {
-            my_energy = clamp16(int(my_energy) + KILL_ENERGY);
-            new_ternary = 0;  // Gemini: forced handling time — sit and digest
+            my_energy = int16_t(clamp(int(my_energy) + KILL_ENERGY, 0, my_max_e));
+            new_ternary = 0;  // forced handling time — sit and digest
         } else if (my_entity == LION && dest_entity == GRASS) {
             // Lions walk through grass — trample it lightly
             gauge[target] = -30;
@@ -748,6 +804,241 @@ kernel void grow_grass(
 }
 
 // ── Census ────────────────────────────────────────────────
+// ── Genesis: GPU state initialization ────────────────────
+// Replaces CPU randomInit. Each thread initializes one cell.
+// PCG32 hash per thread → deterministic, massively parallel.
+// Water: noise threshold (replaces sequential flood-fill).
+// Gemini Optimization B.
+
+// PCG32-style hash: deterministic, decorrelated per thread
+inline uint pcg32(uint state) {
+    state = state * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+// Simple 2D hash noise for water lake placement
+inline float hash_noise(uint col, uint row, uint seed) {
+    // Two octaves of hash noise → organic lake shapes
+    uint h1 = pcg32(col * 73856093u ^ row * 19349663u ^ seed);
+    float n1 = float(h1) / float(0xFFFFFFFFu);
+    // Second octave at 4× frequency
+    uint h2 = pcg32((col/4u) * 56443811u ^ (row/4u) * 83492791u ^ seed * 37u);
+    float n2 = float(h2) / float(0xFFFFFFFFu);
+    return n1 * 0.6 + n2 * 0.4;
+}
+
+kernel void genesis(
+    device int8_t*   entity      [[ buffer(0) ]],
+    device int16_t*  energy      [[ buffer(1) ]],
+    device int8_t*   ternary     [[ buffer(2) ]],
+    device int16_t*  gauge       [[ buffer(3) ]],
+    device int8_t*   orientation [[ buffer(4) ]],
+    constant uint32_t& grid_w    [[ buffer(5) ]],
+    constant uint32_t& grid_h    [[ buffer(6) ]],
+    constant uint32_t& seed      [[ buffer(7) ]],
+    constant float&  grass_frac  [[ buffer(8) ]],
+    constant float&  zebra_frac  [[ buffer(9) ]],
+    constant float&  lion_frac   [[ buffer(10) ]],
+    constant float&  water_thresh [[ buffer(11) ]],  // ~0.92 for ~8% water
+    device const int32_t* morton_rank [[ buffer(12) ]],  // row-major → Morton
+    uint                  gid    [[ thread_position_in_grid ]]
+) {
+    if (gid >= grid_w * grid_h) return;
+
+    // Row-major position
+    uint col = gid % grid_w;
+    uint row = gid / grid_w;
+
+    // Morton-ordered buffer index
+    uint m = uint(morton_rank[gid]);
+
+    // Per-cell deterministic RNG chain
+    uint rng = pcg32(gid ^ seed * 2654435761u);
+
+    // ── Water: noise-based lakes ──
+    float noise = hash_noise(col, row, seed);
+    if (noise > water_thresh) {
+        entity[m] = WATER;
+        energy[m] = 0;
+        ternary[m] = 0;
+        gauge[m] = 0;
+        orientation[m] = 0;
+        return;
+    }
+
+    // ── Grass ──
+    rng = pcg32(rng);
+    float r = float(rng) / float(0xFFFFFFFFu);
+    if (r < grass_frac) {
+        entity[m] = GRASS;
+        energy[m] = 0;
+        ternary[m] = 0;
+        rng = pcg32(rng);
+        gauge[m] = int16_t(rng % 256u);  // random maturity
+        orientation[m] = 0;
+    } else {
+        entity[m] = EMPTY;
+        energy[m] = 0;
+        ternary[m] = 0;
+        gauge[m] = 0;
+        orientation[m] = 0;
+    }
+
+    // ── Zebras: Gaussian clusters (5 herds, dice-5 pattern) ──
+    // Check if this cell falls within any herd's Gaussian radius
+    rng = pcg32(rng);
+    float zr = float(rng) / float(0xFFFFFFFFu);
+
+    // 5 herd centers (fractional positions × grid size)
+    // Center, TL, TR, BL, BR
+    float2 herds[5] = {
+        float2(0.375, 0.375),
+        float2(0.2, 0.2),
+        float2(0.55, 0.2),
+        float2(0.2, 0.55),
+        float2(0.55, 0.55)
+    };
+    float herd_radius = float(grid_w) / 8.0;
+
+    for (int h = 0; h < 5; h++) {
+        float cx = herds[h].x * float(grid_w);
+        float cy = herds[h].y * float(grid_h);
+        float dx = float(col) - cx;
+        float dy = float(row) - cy;
+        float dist2 = dx * dx + dy * dy;
+        float sigma2 = herd_radius * herd_radius;
+        // Gaussian probability: peak = zebra_frac * 5
+        float prob = zebra_frac * 5.0 * exp(-dist2 / (2.0 * sigma2));
+        if (zr < prob && entity[m] != WATER) {
+            entity[m] = ZEBRA;
+            rng = pcg32(rng);
+            energy[m] = int16_t(150 + (rng % 101u));
+            ternary[m] = int8_t(rng % 2u);
+            rng = pcg32(rng);
+            orientation[m] = int8_t(rng % 6u);
+            // Uniform age with spread repro phase
+            rng = pcg32(rng);
+            int age = 730 + int(rng % uint(32000 - 730));
+            rng = pcg32(rng);
+            int phase = int(rng % 365u);
+            gauge[m] = int16_t(age - (age % 365) + phase);
+            return;
+        }
+    }
+
+    // ── Lions: grid of prides, 4 per pride ──
+    rng = pcg32(rng);
+    float lr = float(rng) / float(0xFFFFFFFFu);
+    if (lr < lion_frac && entity[m] != WATER && entity[m] != ZEBRA) {
+        entity[m] = LION;
+        rng = pcg32(rng);
+        energy[m] = int16_t(200 + (rng % 101u));
+        ternary[m] = 1;
+        rng = pcg32(rng);
+        orientation[m] = int8_t(rng % 6u);
+        // Uniform age
+        rng = pcg32(rng);
+        int age = 2920 + int(rng % uint(18000 - 2920));
+        rng = pcg32(rng);
+        int phase = int(rng % 2920u);
+        gauge[m] = int16_t(age - (age % 2920) + phase);
+    }
+}
+
+// ── RG-LOD: Renormalization Group Level-of-Detail ────────
+// Reduces entity buffer to half resolution. Each output pixel stores
+// the DOMINANT entity, but the real magic is in the composition buffer
+// (4 floats per pixel: grass_frac, zebra_frac, lion_frac, water_frac).
+// Multiple passes build a mipmap pyramid. Color at any zoom =
+// weighted blend of entity colors × fractions.
+
+kernel void reduce_lod_compose(
+    device const int8_t*  src_entity  [[ buffer(0) ]],
+    device float4*        dst_compose [[ buffer(1) ]],  // (grass, zebra, lion, water) fractions
+    constant uint32_t&    src_w       [[ buffer(2) ]],
+    constant uint32_t&    src_h       [[ buffer(3) ]],
+    uint                  gid         [[ thread_position_in_grid ]]
+) {
+    uint dst_w = src_w / 2;
+    uint dst_h = src_h / 2;
+    if (gid >= dst_w * dst_h) return;
+
+    uint dx = gid % dst_w;
+    uint dy = gid / dst_w;
+    uint sx = dx * 2, sy = dy * 2;
+
+    // Count entities in 2×2 block
+    float4 comp = float4(0);  // grass, zebra, lion, water
+    for (int oy = 0; oy < 2; oy++) {
+        for (int ox = 0; ox < 2; ox++) {
+            int8_t e = src_entity[(sy + oy) * src_w + (sx + ox)];
+            if (e == GRASS) comp.x += 0.25;
+            else if (e == ZEBRA) comp.y += 0.25;
+            else if (e == LION)  comp.z += 0.25;
+            else if (e == WATER) comp.w += 0.25;
+            // EMPTY contributes nothing (dark)
+        }
+    }
+    dst_compose[gid] = comp;
+}
+
+// Reduce composition buffer to half (cascade: compose → compose → ...)
+kernel void reduce_lod_cascade(
+    device const float4*  src_compose [[ buffer(0) ]],
+    device float4*        dst_compose [[ buffer(1) ]],
+    constant uint32_t&    src_w       [[ buffer(2) ]],
+    constant uint32_t&    src_h       [[ buffer(3) ]],
+    uint                  gid         [[ thread_position_in_grid ]]
+) {
+    uint dst_w = src_w / 2;
+    uint dst_h = src_h / 2;
+    if (gid >= dst_w * dst_h) return;
+
+    uint dx = gid % dst_w;
+    uint dy = gid / dst_w;
+    uint sx = dx * 2, sy = dy * 2;
+
+    float4 a = src_compose[sy * src_w + sx];
+    float4 b = src_compose[sy * src_w + sx + 1];
+    float4 c = src_compose[(sy + 1) * src_w + sx];
+    float4 d = src_compose[(sy + 1) * src_w + sx + 1];
+
+    dst_compose[gid] = (a + b + c + d) * 0.25;
+}
+
+// Render composition to RGBA pixels for display
+kernel void render_lod(
+    device const float4* compose    [[ buffer(0) ]],
+    device uchar4*       pixels     [[ buffer(1) ]],
+    constant uint32_t&   pixel_count [[ buffer(2) ]],
+    uint                 gid        [[ thread_position_in_grid ]]
+) {
+    if (gid >= pixel_count) return;
+
+    float4 c = compose[gid];
+    float empty_frac = max(0.0, 1.0 - c.x - c.y - c.z - c.w);
+
+    // Blend entity colors by fraction
+    // Empty: (26, 20, 8), Grass: (58, 74, 24), Zebra: (232, 228, 220)
+    // Lion: (180, 40, 30), Water: (40, 90, 160)
+    float3 color = float3(26, 20, 8) * empty_frac
+                 + float3(58, 74, 24) * c.x    // grass
+                 + float3(232, 228, 220) * c.y  // zebra
+                 + float3(220, 50, 30) * c.z    // lion (boosted red for visibility)
+                 + float3(40, 90, 160) * c.w;   // water
+
+    // Boost rare entities: if lion fraction > 0, ensure minimum red visibility
+    if (c.z > 0.001) color = mix(color, float3(255, 40, 30), max(0.15, c.z));
+    if (c.y > 0.01)  color = mix(color, float3(240, 240, 230), max(0.1, c.y));
+
+    pixels[gid] = uchar4(uchar(clamp(color.x, 0.0, 255.0)),
+                          uchar(clamp(color.y, 0.0, 255.0)),
+                          uchar(clamp(color.z, 0.0, 255.0)),
+                          255);
+}
+
+// ── Census ──────────────────────────────────────────────
 kernel void census_reduce(
     device const int8_t*   entity     [[ buffer(0) ]],
     device atomic_uint*    grass_count[[ buffer(1) ]],

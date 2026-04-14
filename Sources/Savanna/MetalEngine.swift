@@ -15,6 +15,10 @@ public final class MetalEngine {
     let grassPipeline: MTLComputePipelineState
     let censusPipeline: MTLComputePipelineState
     let scentPipeline: MTLComputePipelineState
+    let genesisPipeline: MTLComputePipelineState
+    let lodComposePipeline: MTLComputePipelineState
+    let lodCascadePipeline: MTLComputePipelineState
+    let lodRenderPipeline: MTLComputePipelineState
 
     // State buffers
     public let entityBuf: MTLBuffer
@@ -43,6 +47,7 @@ public final class MetalEngine {
     let censusEnergy: MTLBuffer
 
     let nodeCount: Int
+    let mainTileN: UInt32  // Halo Protocol: cells in main tile (halo starts after this)
 
     public init(grid: HexGrid, state: SavannaState) throws {
         guard let device = MTLCreateSystemDefaultDevice(),
@@ -53,6 +58,7 @@ public final class MetalEngine {
         self.grid = grid
         self.queue = queue
         self.nodeCount = grid.nodeCount
+        self.mainTileN = UInt32(grid.nodeCount)  // no halo by default; TiledSimulator overrides
         let n = nodeCount
 
         // Compile shaders from source
@@ -65,6 +71,10 @@ public final class MetalEngine {
         self.grassPipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "grow_grass")!)
         self.censusPipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "census_reduce")!)
         self.scentPipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "diffuse_scent")!)
+        self.genesisPipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "genesis")!)
+        self.lodComposePipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "reduce_lod_compose")!)
+        self.lodCascadePipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "reduce_lod_cascade")!)
+        self.lodRenderPipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "render_lod")!)
 
         // State buffers
         let shared = MTLResourceOptions.storageModeShared
@@ -101,6 +111,123 @@ public final class MetalEngine {
         self.censusZebra = device.makeBuffer(length: 4, options: shared)!
         self.censusLion = device.makeBuffer(length: 4, options: shared)!
         self.censusEnergy = device.makeBuffer(length: 4, options: shared)!
+    }
+
+    /// GPU-initialize state (Gemini Optimization B: genesis.metal).
+    /// Replaces CPU randomInit — runs in <10ms on GPU for 1B cells.
+    public func gpuInit(seed: UInt32 = 42,
+                        grassFrac: Float = 0.80,
+                        zebraFrac: Float = 0.02,
+                        lionFrac: Float = 0.00025,
+                        waterThresh: Float = 0.92) {
+        guard let cmdBuf = queue.makeCommandBuffer(),
+              let enc = cmdBuf.makeComputeCommandEncoder() else { return }
+
+        enc.setComputePipelineState(genesisPipeline)
+        enc.setBuffer(entityBuf, offset: 0, index: 0)
+        enc.setBuffer(energyBuf, offset: 0, index: 1)
+        enc.setBuffer(ternaryBuf, offset: 0, index: 2)
+        enc.setBuffer(gaugeBuf, offset: 0, index: 3)
+        enc.setBuffer(orientationBuf, offset: 0, index: 4)
+        var w = UInt32(grid.width), h = UInt32(grid.height)
+        var s = seed
+        var gf = grassFrac, zf = zebraFrac, lf = lionFrac, wt = waterThresh
+        enc.setBytes(&w, length: 4, index: 5)
+        enc.setBytes(&h, length: 4, index: 6)
+        enc.setBytes(&s, length: 4, index: 7)
+        enc.setBytes(&gf, length: 4, index: 8)
+        enc.setBytes(&zf, length: 4, index: 9)
+        enc.setBytes(&lf, length: 4, index: 10)
+        enc.setBytes(&wt, length: 4, index: 11)
+        // mortonRank buffer for row-major → Morton mapping
+        let mrBuf = device.makeBuffer(bytes: grid.mortonRank,
+                                       length: grid.mortonRank.count * 4,
+                                       options: .storageModeShared)!
+        enc.setBuffer(mrBuf, offset: 0, index: 12)
+
+        let tpg = genesisPipeline.maxTotalThreadsPerThreadgroup
+        let n = grid.nodeCount
+        enc.dispatchThreadgroups(
+            MTLSize(width: (n + tpg - 1) / tpg, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: tpg, height: 1, depth: 1))
+        enc.endEncoding()
+        cmdBuf.commit()
+        cmdBuf.waitUntilCompleted()
+    }
+
+    /// Generate RG-LOD pyramid and render to RGBA at target resolution.
+    /// Cascade: entity → compose(half) → cascade(quarter) → ... → render(RGBA)
+    public func generateLOD(targetWidth: Int, targetHeight: Int) -> Data? {
+        let w = grid.width
+        let h = grid.height
+        // How many 2× reductions to reach target
+        let levels = max(1, Int(log2(Double(w) / Double(targetWidth))))
+        let shared = MTLResourceOptions.storageModeShared
+
+        guard let cmdBuf = queue.makeCommandBuffer() else { return nil }
+
+        // Level 0: entity → composition (half res)
+        var curW = UInt32(w / 2), curH = UInt32(h / 2)
+        var curN = Int(curW * curH)
+        let comp0 = device.makeBuffer(length: curN * 16, options: shared)!  // float4 = 16 bytes
+        if let enc = cmdBuf.makeComputeCommandEncoder() {
+            enc.setComputePipelineState(lodComposePipeline)
+            enc.setBuffer(entityBuf, offset: 0, index: 0)
+            enc.setBuffer(comp0, offset: 0, index: 1)
+            var srcW = UInt32(w), srcH = UInt32(h)
+            enc.setBytes(&srcW, length: 4, index: 2)
+            enc.setBytes(&srcH, length: 4, index: 3)
+            let tpg = lodComposePipeline.maxTotalThreadsPerThreadgroup
+            enc.dispatchThreadgroups(
+                MTLSize(width: (curN + tpg - 1) / tpg, height: 1, depth: 1),
+                threadsPerThreadgroup: MTLSize(width: tpg, height: 1, depth: 1))
+            enc.endEncoding()
+        }
+
+        // Cascade reductions
+        var prevBuf = comp0
+        for _ in 1..<levels {
+            let nextW = curW / 2, nextH = curH / 2
+            let nextN = Int(nextW * nextH)
+            if nextN <= 0 { break }
+            let nextBuf = device.makeBuffer(length: nextN * 16, options: shared)!
+            if let enc = cmdBuf.makeComputeCommandEncoder() {
+                enc.setComputePipelineState(lodCascadePipeline)
+                enc.setBuffer(prevBuf, offset: 0, index: 0)
+                enc.setBuffer(nextBuf, offset: 0, index: 1)
+                enc.setBytes(&curW, length: 4, index: 2)
+                enc.setBytes(&curH, length: 4, index: 3)
+                let tpg = lodCascadePipeline.maxTotalThreadsPerThreadgroup
+                enc.dispatchThreadgroups(
+                    MTLSize(width: (nextN + tpg - 1) / tpg, height: 1, depth: 1),
+                    threadsPerThreadgroup: MTLSize(width: tpg, height: 1, depth: 1))
+                enc.endEncoding()
+            }
+            curW = nextW; curH = nextH; curN = nextN
+            prevBuf = nextBuf
+        }
+
+        // Render composition to RGBA
+        let pixelBuf = device.makeBuffer(length: curN * 4, options: shared)!  // RGBA
+        if let enc = cmdBuf.makeComputeCommandEncoder() {
+            enc.setComputePipelineState(lodRenderPipeline)
+            enc.setBuffer(prevBuf, offset: 0, index: 0)
+            enc.setBuffer(pixelBuf, offset: 0, index: 1)
+            var pc = UInt32(curN)
+            enc.setBytes(&pc, length: 4, index: 2)
+            let tpg = lodRenderPipeline.maxTotalThreadsPerThreadgroup
+            enc.dispatchThreadgroups(
+                MTLSize(width: (curN + tpg - 1) / tpg, height: 1, depth: 1),
+                threadsPerThreadgroup: MTLSize(width: tpg, height: 1, depth: 1))
+            enc.endEncoding()
+        }
+
+        cmdBuf.commit()
+        cmdBuf.waitUntilCompleted()
+
+        // Read RGBA pixels
+        let ptr = pixelBuf.contents().bindMemory(to: UInt8.self, capacity: curN * 4)
+        return Data(bytes: ptr, count: curN * 4)
     }
 
     /// Dispatch a scent diffusion pass.
@@ -165,6 +292,8 @@ public final class MetalEngine {
             enc.setBytes(&day, length: 4, index: 12)
             var size = UInt32(colorGroupSizes[phase])
             enc.setBytes(&size, length: 4, index: 13)
+            var mtn = mainTileN
+            enc.setBytes(&mtn, length: 4, index: 14)  // Halo Protocol
 
             let tpg = tickPipeline.maxTotalThreadsPerThreadgroup
             enc.dispatchThreadgroups(
