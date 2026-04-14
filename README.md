@@ -2,11 +2,11 @@
 
 > **Note:** This is an amateur engineering project. We are not HPC professionals and make no competitive claims. We built a simulation, the performance surprised us, and we share the numbers because they might be useful. We are certain there are errors — if you find one, please open an issue. That is the point of open source. GPL v3.
 
-**Ultra-Scale Spatial Lattice Engine — 14.6 GCUPS on Apple M5 Max**
+**Ultra-Scale Spatial Lattice Engine — 15.8 GCUPS on Apple M5 Max**
 
 An ultra-scale spatial computation engine running on Apple Metal, featuring lock-free, atomic-free parallel entity updates (census uses atomics for population counters).
 
-**14.6 GCUPS** (14.6 billion cell-updates per second) measured at 16M cells on Apple M5 Max with 128 GB unified memory. 10-run validated, low variance (0.5–5% coefficient of variation). Pure GPU compute: 0.61 ms/tick at 1M cells (1,634 tps). See [BENCHMARK.md](BENCHMARK.md) for full methodology — what is measured, what is excluded, and how to reproduce.
+**15.8 GCUPS** (15.8 billion cell-updates per second) peak at 64M cells on Apple M5 Max with 128 GB unified memory. Morton Z-curve memory layout. 10-run validated, low variance (0.5–5% coefficient of variation). Pure GPU compute: 0.58 ms/tick at 1M cells (1,722 tps). See [BENCHMARK.md](BENCHMARK.md) for full methodology — what is measured, what is excluded, and how to reproduce.
 
 > The biology is the test workload. The engine is a spatial lattice compute machine.
 
@@ -24,11 +24,11 @@ The simulation models a predator-prey ecosystem (grass → zebra → lion), but 
 |--------|-------|
 | Grid | 1,048,576 nodes (1024×1024 hex) |
 | Channels | 5 per node + 4 scent fields = 23 MB state |
-| Compute | 0.6 ms per tick (12 kernel dispatches) |
-| Throughput | **14.6 billion** cell-updates/sec |
-| Simulation rate | 1,634 tps (GPU compute only) |
+| Compute | 0.58 ms per tick (13 kernel dispatches) |
+| Throughput | **15.8 billion** cell-updates/sec (peak at 64M) |
+| Simulation rate | 1,722 tps at 1M cells (GPU compute only) |
 | Display rate | 60-120 fps (vsync) |
-| State bandwidth | 29 GB/sec |
+| State bandwidth | 38 GB/sec |
 | GPU utilisation | 5% (idle 95% waiting for vsync) |
 | Hardware | Apple M5 Max, 128 GB unified memory |
 
@@ -36,12 +36,12 @@ The simulation models a predator-prey ecosystem (grass → zebra → lion), but 
 
 | Grid Size | Ticks/sec | Notes |
 |-----------|-----------|-------|
-| 1M | 1,634 | interactive (>>60 fps) |
-| 4M | 490 | interactive |
-| 16M | 124 | interactive |
-| 67M | 29 | watchable |
-| 256M | ~7 | slow |
-| 1B | ~1.9 | batch only |
+| 1M | 1,722 | interactive (>>60 fps) |
+| 4M | 504 | interactive |
+| 16M | 128 | interactive |
+| 64M | 33 | watchable |
+| 256M | 7.9 | slow |
+| 1B | 1.9 | batch only |
 
 ### Context
 
@@ -193,7 +193,7 @@ SavannaEngine/
 On a hexagonal grid, each cell has 6 neighbours forming a "flower" of 7 tiles. For movement safety (distance-2 independence), all 7 must execute at different times. The formula `(col + row + 4×(col&1)) mod 7` was found by exhaustive search over all `(a×col + b×row + d×(col&1)) mod 7` candidates. 12 valid formulas exist; this is the simplest.
 
 ### Why Not Atomics?
-GPU atomic operations cost 10-50× more than normal memory writes due to hardware serialisation. With 13 million potential atomic operations per tick eliminated by colouring, the performance gain is ~10-50×. This is the difference between 14.6 billion ops/sec and ~500 million.
+GPU atomic operations cost 10-50× more than normal memory writes due to hardware serialisation. With 13 million potential atomic operations per tick eliminated by colouring, the performance gain is ~10-50×. This is the difference between 15.8 billion ops/sec and ~500 million.
 
 ### Unified Memory Advantage
 Apple Silicon's unified memory means CPU and GPU share the same 128GB. No PCIe bus copies. The entity buffer lives in one place — computed by the GPU, read by the CPU for display, without ever moving. On discrete GPU systems (NVIDIA), the same operation requires a 1MB DMA transfer per frame.
@@ -217,7 +217,40 @@ Under the current thermodynamic constraints (Type II satiation, ternary metaboli
 
 **We challenge the theoretical ecology community** to find the parameter basin — or functional response modification — that produces stable oscillations on this discrete hex lattice with asynchronous chromatic Gauss-Seidel updates.
 
-The engine runs at 14.6 GCUPS. The biology is the open problem.
+The engine runs at 15.8 GCUPS. The biology is the open problem.
+
+## Lossless Compression with "Carlos Deltas"
+
+Between simulation ticks, 98.7% of cells don't change. XOR delta compression exploits this sparsity.
+
+Inspired by [Carlos Mateo Muñoz](https://github.com/carlosmateo10/delta-compression-demo)'s RFC 9842 Dictionary TTL extension for dynamic HTTP payloads (MIT License). Carlos's insight: use the previous response as a Brotli/Zstandard compression dictionary for the next response. We apply this to spatial simulation tensors.
+
+**Method:** `Frame_N XOR Frame_N-1` → 98.7% zeros → Zstandard level 3.
+
+**Measured results (1 billion cells, 20 frames):**
+
+| Frame | Sparsity | Raw | Compressed | Ratio |
+|-------|----------|-----|------------|-------|
+| 1 | 97.6% | 1,074 MB | 32.9 MB | 32.6× |
+| 10 | 98.7% | 1,074 MB | 21.5 MB | **50.0×** |
+| 19 | 99.1% | 1,074 MB | 16.8 MB | **63.9×** |
+| **Average** | **98.7%** | **1,074 MB** | **21.5 MB** | **50.0×** |
+
+20 GB raw recording → **408 MB** compressed. Lossless. The ratio improves as the ecosystem stabilizes.
+
+**Scaling projection:**
+
+| Scale | Raw/frame | Delta/frame | 20 frames total |
+|-------|-----------|-------------|-----------------|
+| 1B | 1 GB | 21 MB | 400 MB |
+| 100B | 100 GB | 2.1 GB | 40 GB |
+| 1T | 1 TB | 21 GB | 400 GB |
+
+A 1-Trillion-cell simulation fits on a laptop SSD. Carlos's web standard makes it streamable over HTTP.
+
+This is not web compression applied to simulations. **This is a lossless video codec for spatial compute.** Each frame is a spatial image. XOR delta is the P-frame. Zstandard is the entropy coder. The "dictionary" is the previous frame. Equivalent to H.264 I/P frame structure, but lossless and 50× smaller because scientific simulation data is 99% static between ticks.
+
+Full report: [Carlos_Delta_Compression_Report.pdf](Carlos_Delta_Compression_Report.pdf)
 
 ## References
 
