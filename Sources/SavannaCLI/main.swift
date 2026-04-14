@@ -25,6 +25,7 @@ let maxTicks = Int(arg("ticks", default: "0"))!  // 0 = infinite
 let ramGB = Int(arg("ram", default: "4"))!        // GB for ring buffer
 let recordDir = args.contains("--record") ? arg("record", default: "savanna_rec") : nil
 let checkpointInterval = Int(arg("checkpoint", default: "0"))!  // 0 = disabled
+let useGpuInit = args.contains("--gpu-init")  // Gemini Optimization B
 let snapshotPath = "savanna_state.bin"
 let dayLength = 730    // 6 months of day (was 10 — caused strobe flicker)
 let nightLength = 730  // 6 months of night
@@ -48,37 +49,57 @@ if benchMode { print("  Mode:    BENCHMARK (no file I/O)") }
 print("══════════════════════════════════════════════════════════")
 print()
 
-// ── Build grid ───────────────────────────────────────────
-print("  Building hex grid...", terminator: "")
-fflush(stdout)
+// ── Build grid (cached — Gemini Optimization A: Immortal Grid) ──
+let gridCachePath = "/tmp/savanna_hexgrid_\(width)x\(height).bin"
 let t0 = CFAbsoluteTimeGetCurrent()
-let grid = HexGrid(width: width, height: height)
-let t1 = CFAbsoluteTimeGetCurrent()
-print(" \(fmt(t1 - t0, 1))s")
+let grid: HexGrid
+if let cached = HexGrid.load(from: gridCachePath) {
+    grid = cached
+    let t1 = CFAbsoluteTimeGetCurrent()
+    print("  Loaded cached grid \(width)×\(height) in \(fmt(t1 - t0, 2))s")
+} else {
+    print("  Building hex grid...", terminator: "")
+    fflush(stdout)
+    grid = HexGrid(width: width, height: height)
+    let t1 = CFAbsoluteTimeGetCurrent()
+    print(" \(fmt(t1 - t0, 1))s")
+    // Cache for next run
+    do { try grid.save(to: gridCachePath); print("  Grid cached to \(gridCachePath)") }
+    catch { print("  Warning: could not cache grid: \(error)") }
+}
 print("  7-colouring: [\(grid.colorGroups.map { "\($0.count)" }.joined(separator: ", "))]")
 
-// ── Init state ───────────────────────────────────────────
-print("  Initialising state...", terminator: "")
-fflush(stdout)
-var state = SavannaState(width: width, height: height)
-state.randomInit(grid: grid)
-let c0 = state.census()
-let t2 = CFAbsoluteTimeGetCurrent()
-print(" \(fmt(t2 - t1, 1))s")
-print("  Census: grass=\(c0.grass) zebra=\(c0.zebra) lion=\(c0.lion)")
-
-// ── Metal engine ─────────────────────────────────────────
-print("  Creating Metal engine...", terminator: "")
-fflush(stdout)
+// ── Init state + Metal engine ────────────────────────────
 let engine: MetalEngine
-do {
-    engine = try MetalEngine(grid: grid, state: state)
-} catch {
-    print(" FATAL: \(error)")
-    exit(1)
+if useGpuInit {
+    // Gemini B: GPU genesis — allocate empty state, init on GPU
+    print("  GPU genesis init...", terminator: "")
+    fflush(stdout)
+    let state = SavannaState(width: width, height: height)  // empty arrays
+    do { engine = try MetalEngine(grid: grid, state: state) }
+    catch { print(" FATAL: \(error)"); exit(1) }
+    let tGpu0 = CFAbsoluteTimeGetCurrent()
+    engine.gpuInit(seed: UInt32.random(in: 0...UInt32.max))
+    let tGpu1 = CFAbsoluteTimeGetCurrent()
+    print(" \(fmt((tGpu1 - tGpu0) * 1000, 1))ms")
+} else {
+    // CPU init (original path)
+    print("  Initialising state...", terminator: "")
+    fflush(stdout)
+    var state = SavannaState(width: width, height: height)
+    state.randomInit(grid: grid)
+    let c0 = state.census()
+    print(" \(fmt(CFAbsoluteTimeGetCurrent() - t0, 1))s")
+    print("  Census: grass=\(c0.grass) zebra=\(c0.zebra) lion=\(c0.lion)")
+    print("  Creating Metal engine...", terminator: "")
+    fflush(stdout)
+    do { engine = try MetalEngine(grid: grid, state: state) }
+    catch { print(" FATAL: \(error)"); exit(1) }
+    print(" \(fmt(CFAbsoluteTimeGetCurrent() - t0, 1))s")
 }
-let t3 = CFAbsoluteTimeGetCurrent()
-print(" \(fmt(t3 - t2, 1))s")
+// Census from GPU buffers
+let c0 = engine.census()
+print("  Census: grass=\(c0.grass) zebra=\(c0.zebra) lion=\(c0.lion)")
 
 // ── Recorder ─────────────────────────────────────────────
 let frameBytes = width * height
@@ -105,9 +126,20 @@ if checkpointInterval > 0 {
 
 print()
 
+// ── Carlos Delta encoder (replaces raw frame writes) ────
+import Dispatch
+let asyncWriteQueue = DispatchQueue(label: "savanna.frame-writer", qos: .userInitiated)
+var deltaEncoder: CarlosDelta.Encoder? = nil
+if let dir = recordDir {
+    let deltaPath = "\(dir)/recording.savanna"
+    deltaEncoder = try? CarlosDelta.Encoder(path: deltaPath, width: width, height: height)
+    if deltaEncoder != nil { print("  Carlos Delta encoder: \(deltaPath)") }
+}
+
 // ── Run ──────────────────────────────────────────────────
 let tickLimit = maxTicks > 0 ? maxTicks : Int.max
 var tickCount = 0
+var simTick = 0  // resets on N key
 var totalComputeTime: Double = 0
 let simStart = CFAbsoluteTimeGetCurrent()
 var lastPrint = simStart
@@ -118,38 +150,47 @@ print("  TICK       GRASS   ZEBRA  LION    ms/tick      TPS     GCUPS  PHASE")
 print("──────────────────────────────────────────────────────────────────────────")
 
 for t in 0..<tickLimit {
-    let cyclePos = t % (dayLength + nightLength)
+    let cyclePos = simTick % (dayLength + nightLength)
     let isDay = cyclePos < dayLength
 
     // Pure compute timing
     let tickStart = CFAbsoluteTimeGetCurrent()
-    engine.tick(tickNumber: UInt32(t), isDay: isDay)
+    engine.tick(tickNumber: UInt32(simTick), isDay: isDay)
     let tickEnd = CFAbsoluteTimeGetCurrent()
     let tickMs = (tickEnd - tickStart) * 1000.0
     totalComputeTime += tickMs
 
     tickCount += 1
+    simTick += 1
 
     // Snapshot for HTML viewer (skip in bench mode and record mode)
     if !benchMode && recordDir == nil {
         if let rec = recorder, rec.frameCount > 0 {
-            rec.writeLiveSnapshot(to: snapshotPath, width: width, height: height, tick: t, isDay: isDay)
+            rec.writeLiveSnapshot(to: snapshotPath, width: width, height: height, tick: simTick, isDay: isDay)
         } else {
-            engine.writeSnapshot(to: snapshotPath, width: width, height: height, tick: t, isDay: isDay)
+            engine.writeSnapshot(to: snapshotPath, width: width, height: height, tick: simTick, isDay: isDay)
         }
     }
 
-    // Frame recording to disk (row-major for tile server)
-    if let dir = recordDir {
+    // Frame recording — Carlos Delta encoding (XOR + zlib)
+    if let enc = deltaEncoder {
+        let entities = engine.readEntitiesRowMajor()
+        asyncWriteQueue.async {
+            enc.addFrame(entities)
+        }
+    } else if let dir = recordDir {
+        // Fallback: raw frame write
         let entities = engine.readEntitiesRowMajor()
         let framePath = "\(dir)/frame_\(String(format: "%06d", t)).bin"
-        entities.withUnsafeBytes { ptr in
-            let data = Data(bytes: ptr.baseAddress!, count: ptr.count)
-            try? data.write(to: URL(fileURLWithPath: framePath))
+        let frameNum = t + 1
+        asyncWriteQueue.async {
+            entities.withUnsafeBytes { ptr in
+                let data = Data(bytes: ptr.baseAddress!, count: ptr.count)
+                try? data.write(to: URL(fileURLWithPath: framePath))
+            }
+            let meta = "{\"width\":\(width),\"height\":\(height),\"frame_count\":\(frameNum),\"seed\":42}"
+            try? meta.write(toFile: "\(dir)/meta.json", atomically: true, encoding: .utf8)
         }
-        // Update frame count in meta
-        let meta = "{\"width\":\(width),\"height\":\(height),\"frame_count\":\(t + 1),\"seed\":42}"
-        try? meta.write(toFile: "\(dir)/meta.json", atomically: true, encoding: .utf8)
     }
 
     // Checkpointing (save full state for resume)
@@ -187,12 +228,12 @@ for t in 0..<tickLimit {
         let gcups = Double(width * height) * 7.0 * tps / 1_000_000_000.0
         let phase = isDay ? "DAY" : "NGT"
 
-        print("  \(t+1)\t\(c.grass)\t\(c.zebra)\t\(c.lion)\t\(fmt(avgMs,2)) ms\t\(Int(tps))\t\(fmt(gcups,1)) B\t\(phase)")
+        print("  \(simTick)\t\(c.grass)\t\(c.zebra)\t\(c.lion)\t\(fmt(avgMs,2)) ms\t\(Int(tps))\t\(fmt(gcups,1)) B\t\(phase)")
 
         // Telemetry for HTML stats panel
         if !benchMode {
             let telemetry = """
-            {"tick":\(t+1),"day":\((t+1)/4),"year":\(fmt(Double(t+1)/1460.0, 2)),\
+            {"tick":\(simTick),"day":\(simTick/4),"year":\(fmt(Double(simTick)/1460.0, 2)),\
             "ms":\(fmt(avgMs, 2)),"tps":\(Int(tps)),"speed":1,\
             "grass":\(c.grass),"zebra":\(c.zebra),"lion":\(c.lion),"energy":\(c.totalEnergy),\
             "dG":0,"dZ":0,"dL":0,\
@@ -213,7 +254,7 @@ for t in 0..<tickLimit {
             recorder?.archive(to: path, width: width, height: height)
         } else if cmd == "reset" {
             var newState = SavannaState(width: width, height: height)
-            newState.randomInit(grid: grid)
+            newState.randomInit(grid: grid, seed: UInt64.random(in: 0...UInt64.max))
             // Copy new state to GPU buffers
             let entities = newState.entity
             let energies = newState.energy
@@ -225,10 +266,18 @@ for t in 0..<tickLimit {
             ternaries.withUnsafeBytes { engine.ternaryBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: ternaries.count) }
             gauges.withUnsafeBytes { engine.gaugeBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: gauges.count * 2) }
             orientations.withUnsafeBytes { engine.orientationBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: orientations.count) }
-            totalComputeTime = 0; tickCount = 0
+            totalComputeTime = 0; tickCount = 0; simTick = 0
         }
         try? "".write(toFile: "savanna_cmd.txt", atomically: true, encoding: .utf8)
     }
+}
+
+// Flush async writes and finalize delta encoder
+asyncWriteQueue.sync {}
+if let enc = deltaEncoder {
+    enc.finalize()
+    let fileSize = (try? FileManager.default.attributesOfItem(atPath: "\(recordDir!)/recording.savanna")[.size] as? Int) ?? 0
+    print("  Carlos Delta: \(enc.frameCount) frames, \(fileSize / 1_000_000) MB compressed")
 }
 
 // ── Summary ──────────────────────────────────────────────
