@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Savanna Engine — Ultra-Scale Spatial Lattice Engine — 14.6 GCUPS</title>
+<title>Savanna Engine — Ultra-Scale Spatial Lattice Engine — 15.8 GCUPS</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0a0806; color: #a09070; font: 18px/1.6 'Georgia', serif; scroll-behavior: smooth; }
@@ -49,7 +49,7 @@
 <!-- SLIDE 1 -->
 <div class="slide" id="s1">
   <h1>SAVANNA ENGINE</h1>
-  <p class="subtitle">GPU Graph Compute at 17 Billion Operations Per Second</p>
+  <p class="subtitle">GPU Graph Compute at 15.8 Billion Cell-Updates Per Second</p>
   <div class="diagram">
   <span class="hl">1,048,576</span> hexagonal cells
   Each cell = one node in a graph
@@ -57,11 +57,11 @@
   <span class="green">■</span> Grass grows    <span class="hl">■</span> Zebras graze
   <span class="red">■</span> Lions hunt    <span class="blue">■</span> Water attracts
 
-  Simulated <span class="hl">1,250×</span> per second
+  Simulated <span class="hl">1,722×</span> per second
   Displayed at <span class="hl">60-120 fps</span> (screen refresh)
   On one Apple M5 Max GPU
   </div>
-  <div class="narration" id="n1">A million hexagonal cells. A living ecosystem simulated twelve hundred and fifty times per second on a single GPU. Displayed at your screen's refresh rate. The biology is the test workload. The engine is a ultra-scale spatial lattice engine.</div>
+  <div class="narration" id="n1">A million hexagonal cells. A living ecosystem simulated seventeen hundred and twenty-two times per second on a single GPU. Displayed at your screen's refresh rate. The biology is the test workload. The engine is an ultra-scale spatial lattice engine.</div>
   <div class="controls"><button class="play-btn" onclick="speak(1)">▶</button></div>
   <div class="slide-num">1 / 10</div>
 </div>
@@ -80,9 +80,9 @@
     <tr><th colspan="2">× 1M nodes</th><th class="num">7 MB</th></tr>
     <tr><td colspan="2">+ 4 scent fields (Float32)</td><td>16 MB</td></tr>
     <tr><th colspan="2">Total state</th><th class="num">23 MB</th></tr>
-    <tr><th colspan="2">At 1,634 tps</th><th class="num">29 GB/s</th></tr>
+    <tr><th colspan="2">At 1,722 tps</th><th class="num">40 GB/s</th></tr>
   </table>
-  <div class="narration" id="n2">Five channels per node. Seven bytes per cell. Times one million. Plus four scent diffusion fields. Twenty-three megabytes of state, mutated twelve hundred and fifty times per second. Twenty-nine gigabytes per second of state throughput.</div>
+  <div class="narration" id="n2">Five channels per node. Seven bytes per cell. Times one million. Plus four scent diffusion fields. Twenty-three megabytes of state, mutated seventeen hundred and twenty-two times per second. Forty gigabytes per second of state throughput.</div>
   <div class="controls"><button class="play-btn" onclick="speak(2)">▶</button></div>
   <div class="slide-num">2 / 10</div>
 </div>
@@ -102,9 +102,9 @@
   <span class="red">1× Census</span>              (1M cells)
 
   Total: <span class="hl">7M</span> effective cell-updates per tick
-  Peak at 16M cells: <span class="hl">14.6B</span> cell-updates/sec
+  Peak at 64M cells: <span class="hl">15.8B</span> cell-updates/sec
   </div>
-  <div class="narration" id="n3">Thirteen Metal kernel launches per tick. Four scent diffusions, each touching all million cells. Seven entity updates, one per colour group. Plus grass growth and census. Thirteen million cell updates per tick. At twelve hundred and fifty ticks per second, that is seventeen billion cell updates per second.</div>
+  <div class="narration" id="n3">Thirteen Metal kernel launches per tick. Four scent diffusions, each touching all million cells. Seven entity updates, one per colour group. Plus grass growth and census. Seven million effective cell updates per tick. Peak throughput at sixty-four million cells: fifteen point eight billion cell updates per second.</div>
   <div class="controls"><button class="play-btn" onclick="speak(3)">▶</button></div>
   <div class="slide-num">3 / 10</div>
 </div>
@@ -147,10 +147,10 @@
   The GPU is <span class="red">idle 95%</span> of the time.
   Waiting for the screen to refresh.
 
-  Without vsync: <span class="hl">~1,634 tps</span>
-  = <span class="hl">14.6 BILLION</span> cell-updates/sec
+  Without vsync: <span class="hl">~1,722 tps</span>
+  = <span class="hl">15.8 BILLION</span> cell-updates/sec
   </div>
-  <div class="narration" id="n5">The GPU computes one million cells in zero point eight milliseconds. Then renders in zero point two. Then waits fifteen milliseconds for the screen. The GPU is idle ninety-five percent of the time. Without vsync: twelve hundred and fifty ticks per second. Seventeen billion cell updates per second. On one chip.</div>
+  <div class="narration" id="n5">The GPU computes one million cells in zero point five eight milliseconds. Then renders in zero point two. Then waits fifteen milliseconds for the screen. The GPU is idle ninety-five percent of the time. Without vsync: seventeen hundred and twenty-two ticks per second. Peak at sixty-four million cells: fifteen point eight billion cell updates per second. On one chip.</div>
   <div class="controls"><button class="play-btn" onclick="speak(5)">▶</button></div>
   <div class="slide-num">5 / 10</div>
 </div>
@@ -160,19 +160,19 @@
   <h2>SCALING — How Big Can We Go?</h2>
   <table>
     <tr><th>Grid</th><th>ms/tick</th><th>TPS</th><th>Memory</th></tr>
-    <tr><td>1M (1K×1K)</td><td class="num">0.8</td><td class="num">1,250</td><td>23 MB</td></tr>
-    <tr><td>4M (2K×2K)</td><td class="num">3.2</td><td class="num">312</td><td>92 MB</td></tr>
-    <tr><td>16M (4K×4K)</td><td class="num">13</td><td class="num">77</td><td>368 MB</td></tr>
-    <tr><td>64M (8K×8K)</td><td class="num">52</td><td class="num">19</td><td>1.5 GB</td></tr>
-    <tr><td>256M (16K×16K)</td><td>208</td><td>4.8</td><td>5.9 GB</td></tr>
-    <tr><td style="color:#c04030;">1B (32K×32K)</td><td>832</td><td>1.2</td><td>23 GB</td></tr>
+    <tr><td>1M (1K×1K)</td><td class="num">0.58</td><td class="num">1,722</td><td>23 MB</td></tr>
+    <tr><td>4M (2K×2K)</td><td class="num">1.98</td><td class="num">504</td><td>92 MB</td></tr>
+    <tr><td>16M (4K×4K)</td><td class="num">7.78</td><td class="num">128</td><td>368 MB</td></tr>
+    <tr><td>64M (8K×8K)</td><td class="num">29.8</td><td class="num">33</td><td>1.5 GB</td></tr>
+    <tr><td>256M (16K×16K)</td><td>126.9</td><td>7.9</td><td>5.9 GB</td></tr>
+    <tr><td style="color:#c04030;">1B (32K×32K)</td><td>522.8</td><td>1.9</td><td>23 GB</td></tr>
   </table>
   <div class="diagram">
   M5 Max: <span class="hl">128 GB</span> unified memory
   Theoretical max: ~5 billion cells
   Real-time (>1 tps): up to <span class="hl">1 billion</span>
   </div>
-  <div class="narration" id="n6">Metal compute scales linearly. Double the cells, double the time. Sixteen million cells: seventy-seven ticks per second. Sixty-four million: nineteen. One billion cells: one tick per second. The M5 Max has one hundred twenty-eight gigabytes of unified memory. Real-time up to one billion cells.</div>
+  <div class="narration" id="n6">Metal compute scales linearly. Double the cells, double the time. Sixteen million cells: one hundred twenty-eight ticks per second. Sixty-four million: thirty-three. One billion cells: nearly two ticks per second. The M5 Max has one hundred twenty-eight gigabytes of unified memory. Real-time up to one billion cells.</div>
   <div class="controls"><button class="play-btn" onclick="speak(6)">▶</button></div>
   <div class="slide-num">6 / 10</div>
 </div>
@@ -205,7 +205,7 @@
 <div class="slide" id="s8">
   <h2>THE CEILING IS THE ALGORITHM</h2>
   <div class="diagram">
-  Today: <span class="hl">13 kernels × 1M cells = 14.6B updates/sec</span>
+  Today: <span class="hl">13 kernels × 64M cells = 15.8B updates/sec (peak)</span>
 
   Phase-Transition Engine (next):
   ┌────────────────────────────────────┐
@@ -223,7 +223,7 @@
   • Drug metabolism (liver digital twin)
   • Any spatial lattice with local compute
   </div>
-  <div class="narration" id="n8">The ceiling is not the hardware. It is the algorithm. When ten thousand nodes move as a block, we compute one hull translation instead of ten thousand individual decisions. One hundred times speedup. Same hardware. The savanna was the proof of concept. The engine runs any local computation on any colourable graph at seventeen billion operations per second.</div>
+  <div class="narration" id="n8">The ceiling is not the hardware. It is the algorithm. When ten thousand nodes move as a block, we compute one hull translation instead of ten thousand individual decisions. One hundred times speedup. Same hardware. The savanna was the proof of concept. The engine runs any local computation on any colourable graph at fifteen point eight billion cell updates per second.</div>
   <div class="controls"><button class="play-btn" onclick="speak(8)">▶</button></div>
   <div class="slide-num">8 / 10</div>
 </div>

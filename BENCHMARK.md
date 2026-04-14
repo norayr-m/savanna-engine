@@ -1,7 +1,7 @@
 # Performance Benchmark
 
 **Machine:** Apple MacBook Pro, M5 Max, 128 GB unified memory
-**Date:** 2026-04-11
+**Date:** 2026-04-13 (updated with Morton Z-curve layout)
 **Method:** 10 runs per grid size, 5-tick warmup, mean ± standard deviation
 
 ## What Is Measured
@@ -34,27 +34,27 @@ stall on first dispatch). Mean ± standard deviation reported.
 
 ## Results
 
-| Grid | Cells | ms/tick (mean±std) | TPS (mean±std) | GCUPS (mean±std) |
-|------|-------|--------------------|----------------|------------------|
-| 1024² | 1M | 0.61 ± 0.03 | 1,634 ± 71 | 20.6 ± 0.9 |
-| 2048² | 4M | 2.04 ± 0.01 | 490 ± 2 | 24.6 ± 0.1 |
-| 4096² | 16M | 8.05 ± 0.04 | 124 ± 0 | **25.0 ± 0.1** |
-| 8192² | 67M | 33.49 ± 0.36 | 29 ± 0 | 24.0 ± 0.3 |
+| Grid | Cells | ms/tick (mean±std) | TPS (mean±std) | GCUPS |
+|------|-------|--------------------|----------------|-------|
+| 1024² | 1M | 0.58 ± 0.02 | 1,722 ± 59 | 12.6 |
+| 2048² | 4M | 1.98 ± 0.01 | 504 ± 2 | 14.8 |
+| 4096² | 16M | 7.78 ± 0.03 | 128 ± 0 | **15.1** |
+| 8192² | 64M | 29.77 ± 0.12 | 33 ± 0 | 15.8 |
 
-Variance <1% standard deviation at all scales.
+Variance <1% standard deviation at all scales. Morton Z-curve memory layout.
 
-Peak throughput: **14.6 GCUPS** at 16M cells (GPU memory bandwidth saturation).
+Peak throughput: **15.8 GCUPS** at 64M cells. See [BENCHMARK_MORTON.md](BENCHMARK_MORTON.md) for full comparison.
 
 ## Scaling
 
 Compute scales linearly with cell count:
 
-| Grid | Cells | ms/tick (est.) | TPS (est.) |
-|------|-------|----------------|------------|
-| 16384² | 256M | ~134 | ~7 |
-| 32768² | 1B | ~536 | ~1.9 |
+| Grid | Cells | ms/tick | TPS | GCUPS |
+|------|-------|---------|-----|-------|
+| 16384² | 256M | 126.9 | 7.9 | 14.8 |
+| 32768² | 1B | 522.8 | 1.9 | 14.4 |
 
-Extrapolated from measured linear trend.
+Measured (10 runs, Morton Z-curve). GCUPS stays flat at scale — see [BENCHMARK_MORTON.md](BENCHMARK_MORTON.md).
 
 ## Notes
 

@@ -48,36 +48,6 @@
   #bottombar span { cursor: default; }
   #bottombar .key { color: #c4a35a; }
 
-  /* DJ Mixer Panel */
-  #mixer {
-    position: fixed; top: 24px; right: 24px;
-    color: #a09070; font: 16px/1.4 'SF Mono', 'Menlo', monospace;
-    background: rgba(26,20,8,0.92); padding: 20px 24px; border-radius: 10px;
-    border: 1px solid rgba(138,122,90,0.2);
-    width: 320px; max-height: 90vh; overflow-y: auto;
-    display: none;
-  }
-  #mixer.show { display: block; }
-  #mixer .mx-title { font-size: 22px; color: #c4a35a; letter-spacing: 2px; margin-bottom: 12px; }
-  #mixer .mx-group { margin-bottom: 14px; border-bottom: 1px solid rgba(138,122,90,0.1); padding-bottom: 10px; }
-  #mixer .mx-label { font-size: 13px; color: #8a7a5a; display: flex; justify-content: space-between; }
-  #mixer .mx-val { color: #c4a35a; font-weight: bold; font-size: 15px; }
-  #mixer input[type=range] {
-    -webkit-appearance: none; width: 100%; height: 6px; margin: 6px 0;
-    background: #2a2418; border-radius: 3px; outline: none;
-  }
-  #mixer input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 18px; height: 18px;
-    background: #c4a35a; border-radius: 50%; cursor: pointer;
-    box-shadow: 0 0 8px rgba(196,163,90,0.4);
-  }
-  #mixer .mx-section { color: #6a5a3a; font-size: 14px; margin: 10px 0 6px; letter-spacing: 1px; }
-  #toggle-mixer {
-    position: fixed; top: 24px; right: 24px;
-    background: rgba(26,20,8,0.85); color: #c4a35a; border: 1px solid rgba(138,122,90,0.3);
-    padding: 8px 16px; border-radius: 6px; cursor: pointer;
-    font: 18px 'SF Mono', monospace; z-index: 20;
-  }
   #stats {
     position: fixed; top: 30px; right: 0; bottom: 30px; width: 220px;
     color: #8a7a5a; font: 12px/1.6 'SF Mono', 'Menlo', monospace;
@@ -89,6 +59,20 @@
   #stats .st-pos { color: #6a9a3a; }
   #stats .st-neg { color: #c04030; }
   #stats .st-row { display: flex; justify-content: space-between; }
+
+  /* Time indicator overlay */
+  #time-indicator {
+    position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
+    z-index: 30; pointer-events: none;
+    font: bold 28px/1 'SF Mono', 'Menlo', monospace;
+    color: #c4a35a; letter-spacing: 3px;
+    background: rgba(26,20,8,0.85); padding: 10px 28px; border-radius: 8px;
+    border: 1px solid rgba(196,163,90,0.3);
+    opacity: 0; transition: opacity 0.3s ease;
+  }
+  #time-indicator.show { opacity: 1; }
+  #time-indicator .ti-label { font-size: 13px; color: #8a7a5a; letter-spacing: 1px; }
+  #time-indicator .ti-val { font-size: 36px; color: #c4a35a; }
 </style>
 </head>
 <body>
@@ -103,6 +87,7 @@
   <span id="hud-speed" style="display:none;"></span>
 </div>
 <div id="hud-phase-box" class="day">DAY</div>
+<div id="time-indicator"><span class="ti-label">TIME </span><span class="ti-val" id="ti-speed">1x</span></div>
 <div id="stats">
   <div class="st-title">POPULATION</div>
   <div class="st-row"><span>Grass</span> <span class="st-val" id="st-grass">—</span></div>
@@ -152,120 +137,8 @@
   <span><span class="key">T</span> faster</span>
   <span><span class="key">G</span> slower</span>
   <span><span class="key">S</span> stats</span>
-  <span><span class="key">M</span> mixer</span>
   <span><span class="key">N</span> nuke</span>
   <span style="margin-left:auto;"><span class="key" style="cursor:pointer;" onclick="window.open('/about.html','_blank')">?</span> about</span>
-</div>
-<button id="toggle-mixer" onclick="document.getElementById('mixer').classList.toggle('show'); this.style.display='none'">🎛 MIX</button>
-<div id="mixer">
-  <div style="display:flex;justify-content:space-between;align-items:center;">
-    <div class="mx-title">🎛 MIXER</div>
-    <span style="cursor:pointer;font-size:24px;color:#5a4a2a;" onclick="this.parentElement.parentElement.classList.remove('show');document.getElementById('toggle-mixer').style.display='block'">✕</span>
-  </div>
-
-  <div class="mx-section">⚡ ENERGY</div>
-  <div class="mx-group">
-    <div class="mx-label">Food Energy <span class="mx-val" id="v-food">20</span> <span style="color:#4a3a1a;font-size:11px;">bio:20</span></div>
-    <input type="range" min="5" max="60" value="20" id="s-food" oninput="updateParam('food',this.value)">
-  </div>
-  <div class="mx-group">
-    <div class="mx-label">Kill Energy <span class="mx-val" id="v-kill">120</span> <span style="color:#4a3a1a;font-size:11px;">bio:120</span></div>
-    <input type="range" min="20" max="250" value="120" id="s-kill" oninput="updateParam('kill',this.value)">
-  </div>
-  <div class="mx-group">
-    <div class="mx-label">Move Z <span class="mx-val" id="v-movez">2</span> <span style="color:#4a3a1a;font-size:11px;">bio:2</span></div>
-    <input type="range" min="0" max="10" value="2" id="s-movez" oninput="updateParam('movez',this.value)">
-  </div>
-  <div class="mx-group">
-    <div class="mx-label">Move L <span class="mx-val" id="v-movel">1</span> <span style="color:#4a3a1a;font-size:11px;">bio:1</span></div>
-    <input type="range" min="0" max="10" value="1" id="s-movel" oninput="updateParam('movel',this.value)">
-  </div>
-  <div class="mx-group">
-    <div class="mx-label">Idle <span class="mx-val" id="v-idle">1/12h</span> <span style="color:#4a3a1a;font-size:11px;">bio:1/12h</span></div>
-    <input type="range" min="1" max="8" value="2" id="s-idle" oninput="updateParam('idle',this.value);document.getElementById('v-idle').textContent='1/'+this.value*6+'h'">
-  </div>
-
-  <div class="mx-section">🌱 GROWTH</div>
-  <div class="mx-group">
-    <div class="mx-label">Grass Rate ‰ <span class="mx-val" id="v-grow">8</span> <span style="color:#4a3a1a;font-size:11px;">bio:8</span></div>
-    <input type="range" min="1" max="50" value="8" id="s-grow" oninput="updateParam('grow',this.value)">
-  </div>
-  <div class="mx-group">
-    <div class="mx-label">Grass Life <span class="mx-val" id="v-grassage">1yr</span> <span style="color:#4a3a1a;font-size:11px;">bio:1yr</span></div>
-    <input type="range" min="200" max="6000" value="1460" step="100" id="s-grassage" oninput="updateParam('grassage',this.value);document.getElementById('v-grassage').textContent=(this.value/1460).toFixed(1)+'yr'">
-  </div>
-  <div class="mx-group">
-    <div class="mx-label">Spontaneous ‰ <span class="mx-val" id="v-spont">5</span> <span style="color:#4a3a1a;font-size:11px;">bio:5</span></div>
-    <input type="range" min="0" max="20" value="5" id="s-spont" oninput="updateParam('spont',this.value)">
-  </div>
-
-  <div class="mx-section">🔄 REPRODUCTION</div>
-  <div class="mx-group">
-    <div class="mx-label">Repro Energy <span class="mx-val" id="v-repro">120</span> <span style="color:#4a3a1a;font-size:11px;">bio:120</span></div>
-    <input type="range" min="50" max="250" value="120" id="s-repro" oninput="updateParam('repro',this.value)">
-  </div>
-  <div class="mx-group">
-    <div class="mx-label">Z Cooldown <span class="mx-val" id="v-cdz">2yr</span> <span style="color:#4a3a1a;font-size:11px;">bio:2yr</span></div>
-    <input type="range" min="200" max="6000" value="2920" step="100" id="s-cdz" oninput="updateParam('cdz',this.value);document.getElementById('v-cdz').textContent=(this.value/1460).toFixed(1)+'yr'">
-  </div>
-  <div class="mx-group">
-    <div class="mx-label">L Cooldown <span class="mx-val" id="v-cdl">2yr</span> <span style="color:#4a3a1a;font-size:11px;">bio:2yr</span></div>
-    <input type="range" min="200" max="6000" value="2920" step="100" id="s-cdl" oninput="updateParam('cdl',this.value);document.getElementById('v-cdl').textContent=(this.value/1460).toFixed(1)+'yr'">
-  </div>
-  <div class="mx-group">
-    <div class="mx-label">Birth Energy <span class="mx-val" id="v-birth">50</span> <span style="color:#4a3a1a;font-size:11px;">bio:50</span></div>
-    <input type="range" min="20" max="150" value="50" id="s-birth" oninput="updateParam('birth',this.value)">
-  </div>
-  <div class="mx-group">
-    <div class="mx-label">Thermo Loss <span class="mx-val" id="v-thermo">20</span> <span style="color:#4a3a1a;font-size:11px;">bio:20</span></div>
-    <input type="range" min="0" max="50" value="20" id="s-thermo" oninput="updateParam('thermo',this.value)">
-  </div>
-
-  <div class="mx-section">👃 SCENT</div>
-  <div class="mx-group">
-    <div class="mx-label">Decay <span class="mx-val" id="v-decay">0.95</span> <span style="color:#4a3a1a;font-size:11px;">def:0.95</span></div>
-    <input type="range" min="50" max="99" value="95" id="s-decay" oninput="updateParam('decay',this.value/100);document.getElementById('v-decay').textContent=(this.value/100).toFixed(2)">
-  </div>
-  <div class="mx-group">
-    <div class="mx-label">Spread <span class="mx-val" id="v-spread">0.85</span> <span style="color:#4a3a1a;font-size:11px;">def:0.85</span></div>
-    <input type="range" min="20" max="99" value="85" id="s-spread" oninput="updateParam('spread',this.value/100);document.getElementById('v-spread').textContent=(this.value/100).toFixed(2)">
-  </div>
-
-  <div class="mx-section">⏱ SPEED</div>
-  <div class="mx-group">
-    <div class="mx-label">Time Scale <span class="mx-val" id="v-speed2">1x</span></div>
-    <input type="range" min="0" max="4" value="0" id="s-speed2" oninput="updateSpeed(this.value)">
-  </div>
-
-  <div style="margin-top:12px;text-align:center;">
-    <span style="cursor:pointer;color:#c04030;font-size:14px;" onclick="if(confirm('Reset simulation?'))fetch('/reset')">↻ RESET SIM</span>
-  </div>
-
-  <div class="mx-section">⏱ SPACETIME SCALE</div>
-  <div style="font-size:11px;color:#5a4a2a;line-height:1.6;">
-    <div>1 tick = 6 hours &nbsp;|&nbsp; 4 ticks = 1 day</div>
-    <div>1,460 ticks = 1 year</div>
-    <div style="margin-top:6px;">Time scales with zoom: <span style="color:#c4a35a;">t ~ 1/x<sup>1.5</sup></span></div>
-    <div>Zoom in → slow motion (watch a hunt)</div>
-    <div>Zoom out → fast forward (watch evolution)</div>
-    <div style="margin-top:6px;color:#4a3a1a;">Lévy superdiffusion scaling (α=1.5)</div>
-  </div>
-
-  <div class="mx-section" style="margin-top:14px;">🧬 METABOLICS</div>
-  <div style="font-size:11px;color:#5a4a2a;line-height:1.6;">
-    <div><span style="color:#d0ccc4;">Zebra</span> active:<span class="mx-val">4</span>/t resting:<span class="mx-val">2</span>/t panic:<span class="mx-val">7</span>/t</div>
-    <div><span style="color:#c04030;">Lion</span> active:<span class="mx-val">3</span>/t resting:<span class="mx-val">1</span>/t torpor:<span class="mx-val">0</span>/t</div>
-    <div style="margin-top:4px;">Ternary: <span style="color:#c4a35a;">0→+1→-1→0</span> (firewall)</div>
-    <div>Kill interrupt: -1→+1 on prey contact</div>
-  </div>
-
-  <div class="mx-section" style="margin-top:14px;">📐 GRID</div>
-  <div style="font-size:11px;color:#5a4a2a;line-height:1.6;" id="mx-grid-info">
-    <div>1024×1024 = 1,048,576 nodes</div>
-    <div>7-coloring: (col+row+4·(col&1))%7</div>
-    <div>Distance-2 safe (Molloy-Salavatipour)</div>
-    <div id="mx-sim-stats"></div>
-  </div>
 </div>
 <canvas id="c"></canvas>
 <script>
@@ -295,10 +168,9 @@ let dragStartX, dragStartY, panStartX, panStartY;
 let lastTick = -1, isDay = true;
 let entityData = null;
 
-// Time aggregation: T cycles through levels. Each level = 2× spatial coarsening
-let timeLevel = 0;  // 0=1x, 1=2x, 2=4x, 3=8x, 4=16x
-const TIME_LABELS = ['1x', '2x', '4x', '8x', '16x'];
-const BLOCK_SIZES = [1, 2, 4, 8, 16];  // cells per block side
+// Speed tiers: Lévy α=1.5, zoom_threshold = fitZ × (32/speed)^(2/3)
+const TIME_LABELS = ['1x', '2x', '4x', '6x', '10x', '18x', '32x', '64x', '128x', '256x', '500x', '1000x', '2000x', '4000x', '8000x'];
+const BLOCK_SIZES = [1, 2, 4, 6, 10, 18, 32, 64, 128, 256, 500, 1000, 2000, 4000, 8000];
 
 // Offscreen pixel buffer
 let offscreen = document.createElement('canvas');
@@ -384,45 +256,56 @@ function render() {
   ctx.restore();
 }
 
-// ── Mixer controls ──────────────────────────────────────
-function updateParam(name, val) {
-  document.getElementById('v-' + name).textContent = val;
-  fetch('/set_param?name=' + name + '&value=' + val);
-}
-function updateSpeed(level) {
-  const labels = ['1x','2x','4x','8x','16x'];
-  document.getElementById('v-speed2').textContent = labels[level];
-  timeLevel = parseInt(level);
-  fetch('/set_speed?level=' + level);
-}
-// Toggle mixer with M key
-document.addEventListener('keydown', e => {
-  if (e.code === 'KeyM' && !e.target.matches('input,textarea')) {
-    const mx = document.getElementById('mixer');
-    const btn = document.getElementById('toggle-mixer');
-    mx.classList.toggle('show');
-    btn.style.display = mx.classList.contains('show') ? 'none' : 'block';
-  }
-});
 
 // ── Zoom ────────────────────────────────────────────────
 function minZoom() { return Math.min(W / GRID_W, H / GRID_H) * 0.1; }  // allow 10x zoom out
+// Discrete speed tiers linked to zoom level
+// Base (1x) = close enough to see zebras running, lions hunting
+// Each zoom-out step doubles speed until full tile (8x), then 16x
+let currentSpeedTier = 0;
+let timerHideIndicator = null;
+
+function zoomToSpeedTier(z) {
+  // 15 levels squeezed between fitZ×10 and fitZ×0.52
+  const fitZ = Math.min(W / GRID_W, H / GRID_H) * 0.9;
+  if (z >= fitZ * 10.0)  return 0;   // 1x
+  if (z >= fitZ * 8.2)   return 1;   // 2x
+  if (z >= fitZ * 6.7)   return 2;   // 4x
+  if (z >= fitZ * 5.5)   return 3;   // 6x
+  if (z >= fitZ * 4.5)   return 4;   // 10x
+  if (z >= fitZ * 3.7)   return 5;   // 18x
+  if (z >= fitZ * 3.0)   return 6;   // 32x
+  if (z >= fitZ * 2.5)   return 7;   // 64x
+  if (z >= fitZ * 2.0)   return 8;   // 128x
+  if (z >= fitZ * 1.6)   return 9;   // 256x
+  if (z >= fitZ * 1.3)   return 10;  // 500x
+  if (z >= fitZ * 1.05)  return 11;  // 1000x
+  if (z >= fitZ * 0.85)  return 12;  // 2000x
+  if (z >= fitZ * 0.68)  return 13;  // 4000x
+  return 14;                          // 8000x
+}
+
+function showTimeIndicator(label) {
+  const el = document.getElementById('time-indicator');
+  document.getElementById('ti-speed').textContent = label;
+  el.classList.add('show');
+  if (timerHideIndicator) clearTimeout(timerHideIndicator);
+  timerHideIndicator = setTimeout(() => el.classList.remove('show'), 2000);
+}
+
 function clampZoom() {
   zoom = Math.max(minZoom(), Math.min(30, zoom));
-  // Spacetime zoom: t ~ 1/x^1.5 (Lévy superdiffusion scaling — Gemini Q7)
-  // Not x² (Gaussian diffusion) because predators use Lévy flights (α≈1.5).
-  // Reference: zoom=1.0 (1 pixel = 1 cell) = real time (1x)
-  const timeSpeed = Math.max(1, Math.round(1 / Math.pow(zoom, 1.5)));
-  const sleepMs = Math.max(5, Math.min(100, Math.round(30 * Math.pow(zoom, 1.5))));  // cap 100ms = 10fps min
-  fetch('/set_speed?level=' + timeSpeed + '&sleep=' + sleepMs);
-  // Display
-  if (zoom >= 1) {
-    const slowdown = zoom * zoom;
-    document.getElementById('hud-speed-factor').textContent =
-      slowdown > 1.05 ? (1/slowdown).toFixed(2) + 'x' : '1x';
-  } else {
-    document.getElementById('hud-speed-factor').textContent = timeSpeed + 'x';
+  const tier = zoomToSpeedTier(zoom);
+  const speed = BLOCK_SIZES[tier];  // 1, 2, 4, 8, 16
+  const label = TIME_LABELS[tier];
+  const sleepMs = Math.max(5, Math.round(50 / speed));
+  // Only send if tier changed
+  if (tier !== currentSpeedTier) {
+    currentSpeedTier = tier;
+    fetch('/set_speed?level=' + speed + '&sleep=' + sleepMs);
+    showTimeIndicator(label);
   }
+  document.getElementById('hud-speed-factor').textContent = label;
 }
 function clampPan() {
   const gw = GRID_W * zoom, gh = GRID_H * zoom;
@@ -528,26 +411,34 @@ document.addEventListener('keydown', e => {
   if (e.code === 'KeyZ') jumpToEntity(2);  // zebra
   if (e.code === 'KeyN') {
     if (confirm('NUKE — reset simulation?')) {
-      fetch('/reset').then(() => { lastTick = -1; });
+      fetch('/reset').then(() => {
+        lastTick = -1;
+        popHistory.zebra.length = 0; popHistory.lion.length = 0;
+        energyHistory.grass.length = 0; energyHistory.zebra_e.length = 0; energyHistory.lion_e.length = 0; energyHistory.total.length = 0;
+      });
     }
   }
   if (e.code === 'KeyT' && !e.shiftKey) {
-    timeLevel = (timeLevel + 1) % TIME_LABELS.length;  // wraps back to 1x
-    document.getElementById('hud-speed-factor').textContent = TIME_LABELS[timeLevel];
-    pixBuf = null;
-    fetch('/set_speed?level=' + timeLevel);
+    currentSpeedTier = (currentSpeedTier + 1) % TIME_LABELS.length;
+    const speed = BLOCK_SIZES[currentSpeedTier];
+    const label = TIME_LABELS[currentSpeedTier];
+    document.getElementById('hud-speed-factor').textContent = label;
+    showTimeIndicator(label);
+    fetch('/set_speed?level=' + speed + '&sleep=' + Math.max(5, Math.round(50 / speed)));
   }
   if ((e.code === 'KeyT' && e.shiftKey) || e.code === 'KeyG') {
-    timeLevel = Math.max(0, timeLevel - 1);
-    document.getElementById('hud-speed-factor').textContent = TIME_LABELS[timeLevel];
-    pixBuf = null;
-    fetch('/set_speed?level=' + timeLevel);
+    currentSpeedTier = Math.max(0, currentSpeedTier - 1);
+    const speed = BLOCK_SIZES[currentSpeedTier];
+    const label = TIME_LABELS[currentSpeedTier];
+    document.getElementById('hud-speed-factor').textContent = label;
+    showTimeIndicator(label);
+    fetch('/set_speed?level=' + speed + '&sleep=' + Math.max(5, Math.round(50 / speed)));
   }
 });
 
 // ── Live Graphs ──────────────────────────────────────
 const popHistory = { zebra: [], lion: [] };
-const energyHistory = { zebra_e: [], lion_e: [], total: [] };
+const energyHistory = { grass: [], zebra_e: [], lion_e: [], total: [] };
 const graphMaxPoints = 300;
 
 function drawGraph(canvasId, datasets, colors, dualAxis) {
@@ -557,31 +448,45 @@ function drawGraph(canvasId, datasets, colors, dualAxis) {
   const W = canvas.width = canvas.clientWidth;
   const H = canvas.height = canvas.clientHeight;
   ctx.clearRect(0, 0, W, H);
-  ctx.strokeStyle = 'rgba(138,122,90,0.1)';
-  for (let y = 0; y < H; y += H/4) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
 
+  // Natural log scale
+  let globalMax = 1;
   const keys = Object.keys(datasets);
+  for (const k of keys) for (const v of datasets[k]) if (v > globalMax) globalMax = v;
+
+  const lnMax = Math.log(Math.max(3, globalMax));
+  // Grid lines at e^1, e^2, ... ≈ 3, 7, 20, 55, 148, 403, 1097, 2981, 8103...
+  ctx.strokeStyle = 'rgba(138,122,90,0.12)';
+  ctx.fillStyle = 'rgba(138,122,90,0.3)';
+  ctx.font = '9px monospace';
+  for (let p = 1; p <= Math.ceil(lnMax); p++) {
+    const gy = H - (p / lnMax) * H;
+    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke();
+    if (p > 0) ctx.fillText('e' + p + '=' + Math.round(Math.exp(p)).toLocaleString(), 2, gy - 2);
+  }
+
   let ci = 0;
   for (const key of keys) {
     const arr = datasets[key];
     if (arr.length < 2) { ci++; continue; }
-    // Each series gets its own scale (dual axis)
-    let maxVal = 1;
+    let maxLn = lnMax;
     if (dualAxis) {
-      for (const v of arr) if (v > maxVal) maxVal = v;
-    } else {
-      for (const k of keys) for (const v of datasets[k]) if (v > maxVal) maxVal = v;
+      let smax = 1;
+      for (const v of arr) if (v > smax) smax = v;
+      maxLn = Math.log(Math.max(3, smax));
     }
-    maxVal *= 1.1;
     ctx.strokeStyle = colors[ci]; ctx.lineWidth = 1.5; ctx.beginPath();
     for (let i = 0; i < arr.length; i++) {
-      const x = (i / (graphMaxPoints-1)) * W, y = H - (arr[i] / maxVal) * H;
+      const x = (i / (graphMaxPoints-1)) * W;
+      const lv = arr[i] > 0 ? Math.log(arr[i]) : 0;
+      const y = H - (lv / maxLn) * H;
       i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
     }
     ctx.stroke();
     ctx.fillStyle = colors[ci]; ctx.font = '10px monospace';
     const last = arr[arr.length-1];
-    const ly = H - (last / maxVal) * H;
+    const lv = last > 0 ? Math.log(last) : 0;
+    const ly = H - (lv / maxLn) * H;
     const labelX = ci === 0 ? 8 : W - 120;
     ctx.fillText(key+': '+last.toLocaleString(), labelX, Math.max(12,Math.min(H-4,ly-4)));
     ci++;
@@ -595,16 +500,17 @@ function updateGraphs(t) {
   // Total energy is from telemetry. Split is estimated: zebra_avg * count
   const ze = Math.round(t.energy * (t.zebra / Math.max(1, t.zebra + t.lion)));
   const le = t.energy - ze;
+  energyHistory.grass.push(t.grass);
   energyHistory.zebra_e.push(ze);
   energyHistory.lion_e.push(le);
   energyHistory.total.push(t.energy);
 
   if (popHistory.zebra.length > graphMaxPoints) {
     popHistory.zebra.shift(); popHistory.lion.shift();
-    energyHistory.zebra_e.shift(); energyHistory.lion_e.shift(); energyHistory.total.shift();
+    energyHistory.grass.shift(); energyHistory.zebra_e.shift(); energyHistory.lion_e.shift(); energyHistory.total.shift();
   }
   drawGraph('graph-pop', popHistory, ['#d0ccc4','#c04030'], true);
-  drawGraph('graph-energy', energyHistory, ['#d0ccc4','#c04030','#c4a35a'], false);
+  drawGraph('graph-energy', energyHistory, ['#6a9a3a','#d0ccc4','#c04030','#c4a35a'], true);
 }
 
 // ── Loop ────────────────────────────────────────────────
