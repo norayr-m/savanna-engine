@@ -23,9 +23,11 @@ let benchMode = args.contains("--bench")
 let gridSize = Int(arg("grid", default: "1024"))!
 let maxTicks = Int(arg("ticks", default: "0"))!  // 0 = infinite
 let ramGB = Int(arg("ram", default: "4"))!        // GB for ring buffer
+let recordDir = args.contains("--record") ? arg("record", default: "savanna_rec") : nil
+let checkpointInterval = Int(arg("checkpoint", default: "0"))!  // 0 = disabled
 let snapshotPath = "savanna_state.bin"
-let dayLength = 10
-let nightLength = 10
+let dayLength = 730    // 6 months of day (was 10 — caused strobe flicker)
+let nightLength = 730  // 6 months of night
 
 let width = gridSize
 let height = gridSize
@@ -82,9 +84,23 @@ print(" \(fmt(t3 - t2, 1))s")
 let frameBytes = width * height
 let recorderCapacity = ramGB * 1_000_000_000 / frameBytes
 let recorder = SimRecorder(device: device, grid: grid, capacity: min(recorderCapacity, 200_000))
-if let rec = recorder, !benchMode {
+if let rec = recorder, !benchMode && recordDir == nil {
     engine.recorder = rec
     print("  Recorder: \(rec.capacity) frames (\(rec.capacity * frameBytes / 1_000_000) MB)")
+}
+
+// ── Frame recording to disk ──────────────────────────────
+if let dir = recordDir {
+    let fm = FileManager.default
+    try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    // Write meta.json
+    let meta = "{\"width\":\(width),\"height\":\(height),\"frame_count\":0,\"seed\":42}"
+    try? meta.write(toFile: "\(dir)/meta.json", atomically: true, encoding: .utf8)
+    print("  Recording to: \(dir)/")
+}
+
+if checkpointInterval > 0 {
+    print("  Checkpointing every \(checkpointInterval) ticks")
 }
 
 print()
@@ -114,13 +130,43 @@ for t in 0..<tickLimit {
 
     tickCount += 1
 
-    // Snapshot for HTML viewer (skip in bench mode)
-    if !benchMode {
+    // Snapshot for HTML viewer (skip in bench mode and record mode)
+    if !benchMode && recordDir == nil {
         if let rec = recorder, rec.frameCount > 0 {
             rec.writeLiveSnapshot(to: snapshotPath, width: width, height: height, tick: t, isDay: isDay)
         } else {
             engine.writeSnapshot(to: snapshotPath, width: width, height: height, tick: t, isDay: isDay)
         }
+    }
+
+    // Frame recording to disk (row-major for tile server)
+    if let dir = recordDir {
+        let entities = engine.readEntitiesRowMajor()
+        let framePath = "\(dir)/frame_\(String(format: "%06d", t)).bin"
+        entities.withUnsafeBytes { ptr in
+            let data = Data(bytes: ptr.baseAddress!, count: ptr.count)
+            try? data.write(to: URL(fileURLWithPath: framePath))
+        }
+        // Update frame count in meta
+        let meta = "{\"width\":\(width),\"height\":\(height),\"frame_count\":\(t + 1),\"seed\":42}"
+        try? meta.write(toFile: "\(dir)/meta.json", atomically: true, encoding: .utf8)
+    }
+
+    // Checkpointing (save full state for resume)
+    if checkpointInterval > 0 && (t + 1) % checkpointInterval == 0 {
+        let cpDir = (recordDir ?? ".") + "/checkpoints"
+        try? FileManager.default.createDirectory(atPath: cpDir, withIntermediateDirectories: true)
+        let cpPath = "\(cpDir)/checkpoint_\(String(format: "%06d", t)).bin"
+        // Write all state channels
+        let ent = engine.readEntities()
+        var cpData = Data()
+        var w32 = UInt32(width), h32 = UInt32(height), tick32 = UInt32(t)
+        cpData.append(Data(bytes: &w32, count: 4))
+        cpData.append(Data(bytes: &h32, count: 4))
+        cpData.append(Data(bytes: &tick32, count: 4))
+        ent.withUnsafeBytes { cpData.append(Data(bytes: $0.baseAddress!, count: $0.count)) }
+        try? cpData.write(to: URL(fileURLWithPath: cpPath))
+        print("  [CHECKPOINT] \(cpPath) (\(cpData.count / 1_000_000) MB)")
     }
 
     // Speed control (skip in bench mode)

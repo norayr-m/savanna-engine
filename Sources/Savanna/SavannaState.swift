@@ -39,7 +39,7 @@ public struct SavannaState {
         grid: HexGrid,
         grassFrac: Double = 0.80,
         zebraFrac: Double = 0.02,
-        lionFrac: Double = 0.0004,
+        lionFrac: Double = 0.00004,  // ~40 lions on 1M grid
         seed: UInt64 = 42
     ) {
         var rng = SplitMix64(seed: seed)
