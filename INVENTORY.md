@@ -61,3 +61,4 @@ SHA-256 of the raw frames section can be used for verification.
 | `/tmp/savanna_sleep.txt` | Spacetime zoom sleep duration |
 | `/tmp/savanna_cmd.txt` | Commands (archive, etc.) |
 | `/tmp/savanna_server.py` | HTTP server (port 8765) |
+

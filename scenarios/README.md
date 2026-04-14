@@ -24,3 +24,4 @@ The output should match frame-for-frame.
 
 ## File Format
 See [INVENTORY.md](../INVENTORY.md) for the .savanna binary format spec.
+
