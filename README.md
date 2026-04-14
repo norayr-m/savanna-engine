@@ -115,14 +115,39 @@ pkill -f savanna-cli
 pkill -f "http.server"
 ```
 
-### CLI Options
+### CLI Options — savanna-cli
 
 ```bash
---grid 2048    # 4M cells (default: 1024 = 1M)
---ram 1        # 1 GB ring buffer (fits 8GB Mac)
---ram 16       # 16 GB ring buffer
---bench        # pure compute, no file I/O
---ticks 1000   # stop after 1000 ticks
+# Cell count (human-readable)
+--cells 1M          # 1 million cells (default)
+--cells 100M        # 100 million
+--cells 1B          # 1 billion
+--cells 1T          # 1 trillion (tiled)
+
+# Duration
+--days 180          # simulate 180 days (4 ticks/day, 6 hours/tick)
+--ticks 1000        # or specify ticks directly
+
+# Recording (Carlos Delta compression, ~50× lossless)
+--record myrun/     # saves myrun/recording.savanna
+
+# GPU init (genesis.metal — 3.8ms vs 30s CPU)
+--gpu-init
+
+# Other
+--grid 2048         # explicit grid side length (legacy)
+--ram 1             # ring buffer GB (default 4)
+--bench             # pure compute, no file I/O
+```
+
+Example:
+```bash
+# Simulate 1 billion cells for 6 months, record with delta compression
+savanna-cli --cells 1B --days 180 --record myrun/
+
+# Playback
+savanna-play myrun/recording.savanna --port 8800
+# → open http://localhost:8800/savanna_webgl.html
 ```
 
 ### Memory Requirements
@@ -140,12 +165,15 @@ With `--ram 1`, the engine runs on any Apple Silicon Mac.
 ### Controls
 | Key | Action |
 |-----|--------|
-| scroll/pinch | Zoom (+ spacetime scaling) |
+| scroll/pinch | Zoom (+ Lévy spacetime scaling) |
 | click/dblclick | Zoom in/out |
 | space | Fit to screen |
 | L / Z | Jump to lion / zebra |
+| T / G | Faster / slower |
 | S | Stats panel |
-| M | Mixer panel |
+| N | Reset simulation |
+| ← → | Step frames (playback) |
+| P | Play/pause (playback) |
 | T / G | Faster / slower |
 | N | Reset (nuke) |
 
