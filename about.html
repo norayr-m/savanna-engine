@@ -17,38 +17,85 @@
   table { border-collapse: collapse; width: 100%; margin: 12px 0; }
   th, td { text-align: left; padding: 6px 12px; border-bottom: 1px solid rgba(138,122,90,0.15); font-size: 14px; }
   th { color: #c4a35a; font-family: 'SF Mono', monospace; }
+  .stat { color: #c4a35a; font-weight: bold; font-family: 'SF Mono', monospace; }
+  .credit { color: #5a4a2a; font-size: 13px; border-top: 1px solid rgba(138,122,90,0.1); padding-top: 16px; margin-top: 30px; }
 </style>
 </head>
 <body>
 
 <h1>SAVANNA ENGINE</h1>
-<p class="subtitle">A living digital Serengeti — 1 million nodes, 61 frames per second</p>
+<p class="subtitle">Ultra-scale spatial lattice engine &mdash; 107 billion cells simulated on one laptop</p>
+
+<h2>The Numbers</h2>
+<table>
+  <tr><th>Metric</th><th>Value</th></tr>
+  <tr><td>Peak simulation</td><td class="stat">107,374,182,400 cells (100 billion)</td></tr>
+  <tr><td>Hardware</td><td>Apple M5 Max, 128 GB unified memory</td></tr>
+  <tr><td>100B wall time</td><td class="stat">122 minutes (2 hours, 100 tiles)</td></tr>
+  <tr><td>Peak GCUPS</td><td class="stat">15.8 billion cell-updates/sec</td></tr>
+  <tr><td>TPS at 1M cells</td><td class="stat">1,722 ticks/sec</td></tr>
+  <tr><td>GPU compute at 1B</td><td>2.7s per tick (GPU only)</td></tr>
+  <tr><td>Recording size (100B)</td><td>500 GB (5 frames &times; 100 tiles)</td></tr>
+  <tr><td>Memory layout</td><td>Morton Z-curve (2.11&times; at 1B vs row-major)</td></tr>
+  <tr><td>Grid init (cached)</td><td class="stat">0.01s (was 30s &mdash; Immortal Grid)</td></tr>
+  <tr><td>State init (GPU)</td><td class="stat">3.8ms (was 30s &mdash; genesis.metal)</td></tr>
+</table>
 
 <h2>For Everyone</h2>
-<p>You're watching a million tiny patches of African grassland, alive on your screen. Green is grass. Dark patches are where zebra herds have eaten everything bare. Blue pools are watering holes. White dots are zebras. Red dots are lions.</p>
-<p>The zebras travel in herds, eating grass as they go. When they've stripped an area, they move on — the grass slowly grows back behind them. Every few days they must visit a watering hole or they'll weaken.</p>
-<p>Lions are solitary hunters. They wait near water, because every animal must drink. When a zebra comes too close, the lion charges — covering two hexes in a single explosive burst. If it connects, the zebra dies and the lion feeds for weeks.</p>
-<p>Pinch the screen to zoom. As you zoom in, time slows down — you can watch a single hunt unfold. Zoom out and time speeds up — you watch seasons pass, populations rise and fall.</p>
+<p>You're watching a digital Serengeti. Green is grass. Dark patches are where zebra herds have eaten everything bare. Blue pools are watering holes. White dots are zebras. Red dots are lion prides.</p>
+<p>The zebras travel in herds of thousands, eating grass as they go. When they've stripped an area, they move on &mdash; the grass slowly grows back behind them, creating fractal grazing boundaries that look like coastlines viewed from space.</p>
+<p>Each red dot is a pride of four lionesses. They hunt together, following zebra scent across the landscape. One kill feeds the entire pride and produces eight cubs. Cubs stay with the pride until it reaches eight adults, then the young ones split off to form a new pride.</p>
+<p>Pinch to zoom. Time scales with space: zoom in to watch a single hunt, zoom out to watch centuries of evolution at 8,000&times; speed.</p>
 
 <h2>For the Curious</h2>
-<p>This is a <strong>Lotka-Volterra predator-prey system</strong>, but spatial — not just equations on a chalkboard. Each animal is an autonomous agent with three senses (hearing, sight, smell) and a facing direction. Herding, hunting, and migration all <em>emerge</em> from local rules. Nobody tells the zebras to form herds — they align their movement with neighbors (Vicsek flocking model) and it happens.</p>
-<p>Every animal has a <strong>ternary metabolic state</strong>: active (+1), resting (0), or refractory (-1). Active costs energy. Resting conserves. For zebras, refractory means panic (burns double). For lions, it means torpor — a shutdown mode that costs <em>nothing</em>. A starving lion drifts like a ghost across the savanna, burning zero energy, until it smells prey.</p>
-<p>The zoom isn't just visual — it's <strong>spacetime zoom</strong>. Time scales with the square of the spatial zoom: <code>t ~ 1/x^1.5`. This is Lévy superdiffusion scaling, the same law that governs how temperature diffuses through metal. At the microscale, you watch individual cells. At the macroscale, you watch population waves. Same physics, different resolution.</p>
-<p>Water creates <strong>metapopulation structure</strong>. Each of the 12 lakes is a habitat patch. Animals cluster near water, creating high-density zones connected by low-density grassland corridors. The ecosystem isn't one big soup — it's a network of oases.</p>
+<p>This is a <strong>Lotka-Volterra predator-prey system</strong>, but spatial &mdash; not equations on a chalkboard. Each animal is an autonomous agent with three senses (hearing, sight, smell) and a facing direction. Herding, hunting, and migration all <em>emerge</em> from local rules. Nobody tells the zebras to form herds &mdash; they align their movement with neighbors (Vicsek flocking) and it happens.</p>
+<p>Every animal has a <strong>ternary metabolic state</strong>: active (+1), resting (0), or refractory (-1). Active costs energy. For zebras, refractory means panic. For lions, it means torpor &mdash; zero energy burn, drifting like a ghost until it smells prey.</p>
+<p>The zoom is <strong>spacetime</strong>. Fifteen L&eacute;vy-scaled tiers from 1&times; to 8,000&times;. At the microscale you watch individual cells. At the macroscale you watch population waves. Same physics, different resolution. The scaling exponent is &alpha;=1.5 (L&eacute;vy superdiffusion &mdash; because predators use L&eacute;vy flights, not Brownian motion).</p>
+<p>Water creates <strong>metapopulation structure</strong>. Randomly generated lakes form habitat patches. Animals cluster near water, creating high-density zones connected by grassland corridors. The ecosystem is a network of oases.</p>
 
 <h2>For Engineers</h2>
-<p>The state tensor is <code>[entity, energy, ternary, gauge, orientation] × 1,048,576 nodes</code>, updated via 7 Metal compute shader dispatches per tick. The hex grid uses <strong>7-coloring</strong>: <code>(col + row + 4*(col&1)) % 7</code>, verified by exhaustive search to have zero distance-1 AND distance-2 conflicts. This is the chromatic number for distance-2 independence on the hexagonal lattice (Molloy & Salavatipour 2005).</p>
-<p>Each color group is an independent set — nodes in the same group share no common neighbor. This permits safe concurrent read-neighbor, write-self, AND write-to-neighbor (movement) without atomics or locks. The update is a <strong>chromatic Gauss-Seidel relaxation</strong>: each group sees the latest state from previously processed groups within the same tick.</p>
-<p>Four scent diffusion fields (Float32) propagate information beyond direct neighbors. Zebra scent (decay 0.98) reaches ~50 hexes — lions track herds from far away. Water scent (decay 0.995) reaches ~200 hexes — a permanent gradient map that acts as spatial memory. Animals don't store "where is water" — they read the gradient.</p>
-<p>The <strong>ternary firewall</strong> enforces <code>0 → +1 → -1 → 0</code>. No direct <code>-1 → +1</code> transition, except the <strong>predation interrupt</strong>: a starving lion that contacts prey jumps directly to active. Base metabolic rate is per-species, per-state, per-tick — applied at the top of the kernel before any behavior logic, so no early-return path can bypass it.</p>
-<p>The <strong>unsolved problem</strong>: stable Lotka-Volterra limit cycles have not emerged. The system produces boom-bust (lions overhunt, go extinct, zebras recover) but not oscillation. The spatial Rosenzweig-MacArthur model with discrete hex topology may require a Type II functional response (predator satiation) to stabilize. This is an open research question.</p>
 
-<h2>Narrated Tour</h2>
-<p>Run the guided tour with voice narration:</p>
-<p><code>bash SavannaEngine/tour.sh all</code></p>
-<p>Three levels — general public, science enthusiast, technical — one minute each. The tour controls zoom and time as it speaks.</p>
+<h3>GPU Pipeline</h3>
+<p>13 Metal kernel dispatches per tick: 4 scent diffusions (Float32, all cells), 7 entity updates (one per color group, ~1/7 of cells each), 1 grass growth, 1 census. The hex grid uses <strong>7-coloring</strong>: <code>(col + row + 4*(col&amp;1)) % 7</code> &mdash; distance-2 safe (Molloy &amp; Salavatipour 2005). Zero atomics in the entity pipeline.</p>
 
-<a href="/savanna_live.html" class="back">← Back to Savanna</a>
+<h3>Morton Z-Curve</h3>
+<p>All GPU buffers use Morton-ordered memory. Bit-interleaving maps (col, row) to a space-filling curve where spatial neighbors are close in memory. At 1 billion cells, Morton is <strong>2.11&times; faster</strong> than row-major because scent diffusion reads 6 neighbors per cell &mdash; 4 kernels per tick. Cache line utilization jumps from ~30% to ~80%. <a href="morton_charts.html">Interactive benchmark charts</a>.</p>
+
+<h3>Gemini Optimizations (4/4 implemented)</h3>
+<table>
+  <tr><th>Optimization</th><th>Before</th><th>After</th></tr>
+  <tr><td>A. Immortal Grid (cache HexGrid to disk)</td><td>30s/tile</td><td class="stat">0.01s</td></tr>
+  <tr><td>B. genesis.metal (GPU state init)</td><td>30s/tile</td><td class="stat">3.8ms</td></tr>
+  <tr><td>C. Async Frame Writes (GCD overlap)</td><td>Sync blocked</td><td class="stat">~2&times; I/O overlap</td></tr>
+  <tr><td>D. Halo Protocol (ghost zones)</td><td>Invisible walls</td><td class="stat">3-cell read-only halos</td></tr>
+</table>
+<p>CPU overhead per tile collapsed from <strong>60 seconds to 14 milliseconds</strong> (4,286&times;).</p>
+
+<h3>Pride Dynamics</h3>
+<p>One red dot = one pride (4 lionesses). Per-species energy budgets: zebra max 500, lion max 8,000 (pride). One kill = 8,000 energy &rarr; exactly 8 cubs (4 lionesses &times; 2 each). Cubs born with staggered ages (uniform reproductive phase) for constant birth flow. Prides attract up to 8, then adults split. Lions follow zebra scent; no lion-scent tracking (prevents ant-trail artifacts).</p>
+
+<h3>RG-LOD (Renormalization Group Level-of-Detail)</h3>
+<p>GPU mipmap pyramid: <code>reduce_lod_compose</code> converts entity buffer to composition vectors (grass/zebra/lion/water fractions per pixel). <code>reduce_lod_cascade</code> halves resolution repeatedly. <code>render_lod</code> blends entity colors by fraction &mdash; 0.01% lions show as faint red tint over green, not solid red blocks. The renormalization operator applied to rendering.</p>
+
+<h3>Tiled Architecture (100B+)</h3>
+<p>World = N&times;N tiles, each 1B cells (32768&times;32768). Tiles simulated sequentially, one GPU-load at a time. Grid topology cached (41 GB binary &mdash; loads in 1s vs 30s rebuild). Async frame writes overlap GPU compute and disk I/O. Halo Protocol: 3-cell ghost zones around tile perimeters for cross-boundary scent diffusion and animal sensing.</p>
+
+<h3>Qwen Coder Debug Session</h3>
+<p>The full Metal shader (800+ lines) was sent to <a href="https://huggingface.co/Qwen/Qwen3-Coder-Next">Qwen3 Coder Next</a> via LM Studio for automated bug detection. Found 3 bugs including a critical negative-energy reproduction overflow. Gemma 4 31B hallucinated on the same input.</p>
+
+<h2>Acknowledgments</h2>
+
+<p><strong>Carlos Mateo Mu&ntilde;oz</strong> &mdash; <a href="https://github.com/carlosmateo10/delta-compression-demo">Delta Compression for Dynamic HTML</a> (MIT License). Carlos's dictionary-based Brotli delta compression (RFC 9842 extension) is the architecture for real-time streaming of tiled simulation playback. Between ticks, ~5% of cells change &mdash; delta compression reduces frame updates from gigabytes to megabytes. Carlos, if you're reading this: we hit 100 billion cells. Your delta architecture is the last piece for streaming it live. See you at lunch.</p>
+
+<p><strong>Gemini Deep Think</strong> &mdash; Architectural review and the four optimization directives (Immortal Grid, genesis.metal, Double-Buffer Pipeline, Halo Protocol) that eliminated 99.97% of CPU overhead.</p>
+
+<p class="credit">
+Built by Norayr Matevosyan with Claude (Anthropic). Apple M5 Max, 128 GB unified memory.<br>
+Engine: Swift + Metal. Viewer: vanilla HTML/JS. No frameworks, no cloud, no clusters.<br>
+<a href="https://github.com/norayr-m/savanna-engine">Source on GitHub</a> &mdash; GPL v3.
+</p>
+
+<a href="/savanna_live.html" class="back">&larr; Back to Savanna</a>
 
 </body>
 </html>

@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Savanna — WebGL Renderer (100B)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1408; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; top: 0; left: 0; right: 0;
+    color: #a09070; font: 14px/1 'SF Mono', 'Menlo', monospace;
+    user-select: none;
+    background: rgba(26,20,8,0.8); padding: 8px 16px;
+    display: flex; align-items: center; gap: 16px;
+    z-index: 10;
+  }
+  #hud .val { color: #c4a35a; font-weight: bold; }
+  #hud .title { font-size: 16px; letter-spacing: 2px; color: #c4a35a; }
+  #hud .dim { color: #5a4a2a; font-size: 13px; }
+  #hud-phase-box {
+    position: fixed; top: 0; right: 0; z-index: 11;
+    padding: 8px 16px; font: bold 14px/1 'SF Mono', 'Menlo', monospace;
+    background: rgba(26,20,8,0.8); min-width: 60px; text-align: center;
+    color: #e8c050;
+  }
+  #cell-counter {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    z-index: 30; pointer-events: none; text-align: center;
+    font: bold 48px/1 'SF Mono', 'Menlo', monospace;
+    letter-spacing: 2px;
+    text-shadow: 0 0 20px rgba(0,0,0,0.8), 0 0 60px rgba(0,0,0,0.5);
+    transition: color 0.5s ease;
+  }
+  #cell-counter .label {
+    font-size: 14px; letter-spacing: 3px; opacity: 0.7;
+    display: block; margin-bottom: 4px;
+  }
+  #cell-counter .sub {
+    font-size: 11px; opacity: 0.5; display: block; margin-top: 4px;
+    letter-spacing: 1px;
+  }
+  #time-indicator {
+    position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
+    z-index: 30; pointer-events: none;
+    font: bold 28px/1 'SF Mono', 'Menlo', monospace;
+    color: #c4a35a; letter-spacing: 3px;
+    background: rgba(26,20,8,0.85); padding: 10px 28px; border-radius: 8px;
+    border: 1px solid rgba(196,163,90,0.3);
+    opacity: 0; transition: opacity 0.3s ease;
+  }
+  #time-indicator.show { opacity: 1; }
+  #stats {
+    position: fixed; top: 30px; right: 0; bottom: 30px; width: 220px;
+    color: #8a7a5a; font: 12px/1.6 'SF Mono', 'Menlo', monospace;
+    background: rgba(26,20,8,0.75); padding: 12px 14px;
+    overflow-y: auto; z-index: 9; user-select: none;
+  }
+  #stats .st-title { color: #c4a35a; font-size: 13px; letter-spacing: 1px; margin: 8px 0 4px; }
+  #stats .st-val { color: #c4a35a; font-weight: bold; }
+  #stats .st-row { display: flex; justify-content: space-between; }
+  #bottombar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    color: #5a4a2a; font: 12px/1 'SF Mono', 'Menlo', monospace;
+    background: rgba(26,20,8,0.7); padding: 6px 16px;
+    display: flex; gap: 16px; z-index: 10; user-select: none;
+  }
+  #bottombar .key { color: #c4a35a; }
+  #graphs {
+    position: fixed; bottom: 30px; left: 0; right: 220px; height: 200px;
+    display: flex; gap: 2px; z-index: 8; pointer-events: none;
+  }
+  #graphs canvas { flex: 1; background: rgba(26,20,8,0.85); }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <span class="title">SAVANNA</span>
+  <span class="dim">d<span class="val" id="hud-day">0</span> y<span class="val" id="hud-year">0</span> t<span class="val" id="hud-tick">0</span></span>
+  <span style="color:#6a9a3a">&#x2B22; <span class="val" id="hud-grass">0</span></span>
+  <span style="color:#d0ccc4">&#x2B22; <span class="val" id="hud-zebra">0</span></span>
+  <span style="color:#c04030">&#x2B22; <span class="val" id="hud-lion">0</span></span>
+  <span class="dim"><span class="val" id="hud-fps">0</span>fps <span class="val" id="hud-speed-factor">1x</span></span>
+  <span class="dim" style="color:#c4a35a;font-size:11px;">WebGL</span>
+  <span style="color:#c4a35a;font-size:18px;font-weight:bold;letter-spacing:1px;" id="hud-total">107,374,182,400 cells</span>
+</div>
+<div id="hud-phase-box">DAY</div>
+<div id="cell-counter"><span class="label">CELLS IN VIEW</span><span id="cc-num">0</span><span class="sub" id="cc-sub"></span></div>
+<div id="time-indicator"><span style="font-size:13px;color:#8a7a5a;">TIME </span><span id="ti-speed" style="font-size:36px;">1x</span></div>
+
+<div id="stats">
+  <div class="st-title">POPULATION</div>
+  <div class="st-row"><span>Grass</span> <span class="st-val" id="st-grass">-</span></div>
+  <div class="st-row"><span>Zebra</span> <span class="st-val" id="st-zebra">-</span></div>
+  <div class="st-row"><span>Lion</span> <span class="st-val" id="st-lion">-</span></div>
+  <div class="st-title">COMPUTE</div>
+  <div class="st-row"><span>Grid</span> <span class="st-val" id="st-grid">-</span></div>
+  <div class="st-row"><span>Cells</span> <span class="st-val" id="st-cells">-</span></div>
+  <div class="st-row"><span>Render</span> <span class="st-val" id="st-render">-</span></div>
+  <div class="st-row"><span>Upload</span> <span class="st-val" id="st-upload">-</span></div>
+</div>
+
+<div id="graphs">
+  <div style="position:relative;flex:1;">
+    <canvas id="graph-pop" width="600" height="200"></canvas>
+  </div>
+</div>
+
+<div id="bottombar">
+  <span><span class="key">scroll</span> zoom</span>
+  <span><span class="key">click</span> in</span>
+  <span><span class="key">dblclick</span> out</span>
+  <span><span class="key">space</span> fit</span>
+  <span><span class="key">S</span> stats</span>
+  <span style="margin-left:auto;"><span class="key">WebGL</span> GPU-accelerated</span>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+// ── WebGL Setup ──────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+if (!gl) { document.body.innerHTML = '<h1 style="color:red;padding:40px;">WebGL not available</h1>'; }
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  gl.viewport(0, 0, W, H);
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── Shaders ──────────────────────────────────────────
+const vsrc = `
+  attribute vec2 aPos;
+  varying vec2 vUV;
+  uniform vec2 uOffset;   // pan
+  uniform float uZoom;
+  uniform vec2 uScreen;
+  uniform vec2 uGridSize;
+  void main() {
+    vec2 world = aPos * uGridSize;  // 0..gridW, 0..gridH
+    vec2 screen = (world * uZoom + uOffset) / uScreen * 2.0 - 1.0;
+    screen.y = -screen.y;
+    gl_Position = vec4(screen, 0.0, 1.0);
+    vUV = aPos;  // 0..1
+  }
+`;
+
+const fsrc = `
+  precision mediump float;
+  varying vec2 vUV;
+  uniform sampler2D uTex;
+  // Entity palette: empty(0), grass(1), zebra(2), lion(3), water(4)
+  void main() {
+    float e = floor(texture2D(uTex, vUV).r * 255.0 + 0.5);
+    vec3 col;
+    if (e < 0.5)      col = vec3(0.102, 0.078, 0.031);  // empty
+    else if (e < 1.5)  col = vec3(0.227, 0.290, 0.094);  // grass
+    else if (e < 2.5)  col = vec3(0.910, 0.894, 0.863);  // zebra
+    else if (e < 3.5)  col = vec3(0.706, 0.157, 0.118);  // lion
+    else               col = vec3(0.157, 0.353, 0.627);  // water
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+function compileShader(src, type) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compileShader(vsrc, gl.VERTEX_SHADER));
+gl.attachShader(prog, compileShader(fsrc, gl.FRAGMENT_SHADER));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const aPos = gl.getAttribLocation(prog, 'aPos');
+const uOffset = gl.getUniformLocation(prog, 'uOffset');
+const uZoom = gl.getUniformLocation(prog, 'uZoom');
+const uScreen = gl.getUniformLocation(prog, 'uScreen');
+const uGridSize = gl.getUniformLocation(prog, 'uGridSize');
+
+// Fullscreen quad: two triangles covering 0..1
+const vbuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbuf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0, 1,0, 0,1, 1,0, 1,1, 0,1]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+// Entity texture (will be updated per frame)
+const tex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, tex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+// ── State ────────────────────────────────────────────
+let GRID_W = 1024, GRID_H = 1024;
+let zoom = 1.0, panX = 0, panY = 0;
+let lastTick = -1;
+let dragging = false, dragMoved = false;
+let dragStartX, dragStartY, panStartX, panStartY;
+
+// ── Fetch + Upload ───────────────────────────────────
+async function fetchAndRender() {
+  try {
+    const t0 = performance.now();
+    const resp = await fetch('/savanna_state.bin?t=' + Date.now(), { cache: 'no-store' });
+    if (!resp.ok) return;
+    const buf = await resp.arrayBuffer();
+    const header = new Uint32Array(buf, 0, 4);
+    GRID_W = header[0]; GRID_H = header[1];
+    const tick = header[2];
+    if (tick === lastTick) return;
+    lastTick = tick;
+    const entityData = new Uint8Array(buf, 16);
+    const t1 = performance.now();
+
+    // Upload entity data as LUMINANCE texture — 1 byte per texel
+    // WebGL pixel store: 1-byte alignment for non-RGBA data
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, GRID_W, GRID_H, 0,
+                  gl.LUMINANCE, gl.UNSIGNED_BYTE, entityData);
+    const err = gl.getError();
+    if (err) console.error('WebGL texImage2D error:', err, 'grid:', GRID_W, 'x', GRID_H, 'data:', entityData.length);
+    const t2 = performance.now();
+
+    // HUD
+    document.getElementById('hud-tick').textContent = tick.toLocaleString();
+    document.getElementById('hud-day').textContent = Math.floor(tick / 4).toLocaleString();
+    document.getElementById('hud-year').textContent = (tick / 1460).toFixed(1);
+
+    // Quick census from entity data
+    let grass = 0, zebra = 0, lion = 0;
+    for (let i = 0; i < entityData.length; i++) {
+      const e = entityData[i];
+      if (e === 1) grass++; else if (e === 2) zebra++; else if (e === 3) lion++;
+    }
+    document.getElementById('hud-grass').textContent = grass.toLocaleString();
+    document.getElementById('hud-zebra').textContent = zebra.toLocaleString();
+    document.getElementById('hud-lion').textContent = lion.toLocaleString();
+
+    document.getElementById('st-grass').textContent = grass.toLocaleString();
+    document.getElementById('st-zebra').textContent = zebra.toLocaleString();
+    document.getElementById('st-lion').textContent = lion.toLocaleString();
+    document.getElementById('st-grid').textContent = GRID_W + 'x' + GRID_H;
+    document.getElementById('st-cells').textContent =
+      GRID_W * GRID_H >= 1e9 ? (GRID_W*GRID_H/1e9).toFixed(1) + 'B' :
+      GRID_W * GRID_H >= 1e6 ? (GRID_W*GRID_H/1e6).toFixed(0) + 'M' :
+      (GRID_W*GRID_H).toLocaleString();
+    document.getElementById('st-render').textContent = (t1 - t0).toFixed(0) + 'ms';
+    document.getElementById('st-upload').textContent = (t2 - t1).toFixed(1) + 'ms';
+
+  } catch (e) {}
+}
+
+// ── Render ────────────────────────────────────────────
+function render() {
+  gl.clearColor(0.102, 0.078, 0.031, 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  gl.useProgram(prog);
+  gl.uniform2f(uOffset, panX, panY);
+  gl.uniform1f(uZoom, zoom);
+  gl.uniform2f(uScreen, W, H);
+  gl.uniform2f(uGridSize, GRID_W, GRID_H);
+
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+  updateCellCounter();
+}
+
+// ── Zoom + Pan ───────────────────────────────────────
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const mx = e.clientX, my = e.clientY;
+  if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+    panX -= e.deltaX;
+  } else {
+    const zf = 1 - e.deltaY * 0.003;
+    panX = mx - (mx - panX) * zf;
+    panY = my - (my - panY) * zf;
+    zoom *= zf;
+  }
+  zoom = Math.max(0.0001, Math.min(50, zoom));
+}, { passive: false });
+
+canvas.addEventListener('mousedown', e => {
+  dragging = true; dragMoved = false;
+  dragStartX = e.clientX; dragStartY = e.clientY;
+  panStartX = panX; panStartY = panY;
+  canvas.style.cursor = 'grabbing';
+});
+canvas.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  if (Math.abs(e.clientX - dragStartX) > 3) dragMoved = true;
+  panX = panStartX + (e.clientX - dragStartX);
+  panY = panStartY + (e.clientY - dragStartY);
+});
+canvas.addEventListener('mouseup', () => { dragging = false; canvas.style.cursor = 'grab'; });
+canvas.style.cursor = 'grab';
+
+let clickTimer = null;
+canvas.addEventListener('click', e => {
+  if (dragMoved) return;
+  if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; return; }
+  clickTimer = setTimeout(() => {
+    const zf = 2.0, mx = e.clientX, my = e.clientY;
+    panX = mx - (mx - panX) * zf; panY = my - (my - panY) * zf;
+    zoom *= zf; clickTimer = null;
+  }, 250);
+});
+canvas.addEventListener('dblclick', e => {
+  e.preventDefault();
+  if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+  const zf = 0.5, mx = e.clientX, my = e.clientY;
+  panX = mx - (mx - panX) * zf; panY = my - (my - panY) * zf;
+  zoom *= zf;
+});
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    zoom = Math.min(W / GRID_W, H / GRID_H) * 0.9;
+    panX = (W - GRID_W * zoom) / 2;
+    panY = (H - GRID_H * zoom) / 2;
+  }
+  if (e.code === 'KeyS') {
+    const s = document.getElementById('stats');
+    s.style.display = s.style.display === 'none' ? '' : 'none';
+  }
+});
+
+// ── Loop ─────────────────────────────────────────────
+let frames = 0, lastFpsTime = performance.now();
+async function loop() {
+  await fetchAndRender();
+  render();
+  frames++;
+  const now = performance.now();
+  if (now - lastFpsTime > 1000) {
+    document.getElementById('hud-fps').textContent = frames;
+    frames = 0; lastFpsTime = now;
+  }
+  requestAnimationFrame(loop);
+}
+
+// Fetch total cell count for HUD
+fetch('/info').then(r => r.json()).then(info => {
+  const total = info.total_cells || info.cells;
+  totalWorldCells = total;
+  document.getElementById('hud-total').textContent = total.toLocaleString() + ' cells';
+}).catch(() => {});
+
+// ── Cell Counter — dramatic zoom indicator ──────────
+let totalWorldCells = 107374182400;  // updated from /info
+function updateCellCounter() {
+  // How many world cells are visible in the viewport?
+  const viewW = Math.min(W / zoom, GRID_W);  // thumbnail pixels visible
+  const viewH = Math.min(H / zoom, GRID_H);
+  const visiblePixels = Math.round(viewW * viewH);
+  // Each thumbnail pixel = ratio of real cells
+  const cellsPerPixel = totalWorldCells / (GRID_W * GRID_H);
+  const visibleCells = Math.round(visiblePixels * cellsPerPixel);
+
+  const el = document.getElementById('cc-num');
+  el.textContent = visibleCells.toLocaleString();
+
+  // Show the math: "X pixels × 6,416 cells/px"
+  const cpp = Math.round(cellsPerPixel);
+  document.getElementById('cc-sub').textContent =
+    visiblePixels.toLocaleString() + ' px × ' + cpp.toLocaleString() + ' cells/px';
+
+  // Color by magnitude: white → gold → orange → red → neon pink
+  const mag = Math.log10(Math.max(1, visibleCells));
+  let color;
+  if (mag < 4)       color = '#c0c0c0';        // < 10K: silver
+  else if (mag < 5)  color = '#c4a35a';         // 10K-100K: gold
+  else if (mag < 6)  color = '#d4853a';         // 100K-1M: orange
+  else if (mag < 7)  color = '#e06030';         // 1M-10M: red-orange
+  else if (mag < 8)  color = '#e03030';         // 10M-100M: red
+  else if (mag < 9)  color = '#e02060';         // 100M-1B: hot pink
+  else if (mag < 10) color = '#e020a0';         // 1B-10B: magenta
+  else if (mag < 11) color = '#ff00ff';         // 10B-100B: neon magenta
+  else if (mag < 12) color = '#ff00ff';         // 100B: NEON PINK
+  else               color = '#aa00ff';         // 1T+: PURPLE (Carlos)
+
+  document.getElementById('cell-counter').style.color = color;
+
+  // Glow effect at high magnitudes
+  if (mag >= 10) {
+    document.getElementById('cell-counter').style.textShadow =
+      '0 0 20px ' + color + ', 0 0 60px ' + color + '80, 0 0 100px ' + color + '40';
+  } else {
+    document.getElementById('cell-counter').style.textShadow =
+      '0 0 20px rgba(0,0,0,0.8), 0 0 60px rgba(0,0,0,0.5)';
+  }
+}
+
+// Init: fit to screen
+zoom = Math.min(W / GRID_W, H / GRID_H) * 0.9;
+panX = (W - GRID_W * zoom) / 2;
+panY = (H - GRID_H * zoom) / 2;
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
