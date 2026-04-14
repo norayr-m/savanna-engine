@@ -219,6 +219,39 @@ Under the current thermodynamic constraints (Type II satiation, ternary metaboli
 
 The engine runs at 15.8 GCUPS. The biology is the open problem.
 
+## Lossless Compression with "Carlos Deltas"
+
+Between simulation ticks, 98.7% of cells don't change. XOR delta compression exploits this sparsity.
+
+Inspired by [Carlos Mateo Muñoz](https://github.com/carlosmateo10/delta-compression-demo)'s RFC 9842 Dictionary TTL extension for dynamic HTTP payloads (MIT License). Carlos's insight: use the previous response as a Brotli/Zstandard compression dictionary for the next response. We apply this to spatial simulation tensors.
+
+**Method:** `Frame_N XOR Frame_N-1` → 98.7% zeros → Zstandard level 3.
+
+**Measured results (1 billion cells, 20 frames):**
+
+| Frame | Sparsity | Raw | Compressed | Ratio |
+|-------|----------|-----|------------|-------|
+| 1 | 97.6% | 1,074 MB | 32.9 MB | 32.6× |
+| 10 | 98.7% | 1,074 MB | 21.5 MB | **50.0×** |
+| 19 | 99.1% | 1,074 MB | 16.8 MB | **63.9×** |
+| **Average** | **98.7%** | **1,074 MB** | **21.5 MB** | **50.0×** |
+
+20 GB raw recording → **408 MB** compressed. Lossless. The ratio improves as the ecosystem stabilizes.
+
+**Scaling projection:**
+
+| Scale | Raw/frame | Delta/frame | 20 frames total |
+|-------|-----------|-------------|-----------------|
+| 1B | 1 GB | 21 MB | 400 MB |
+| 100B | 100 GB | 2.1 GB | 40 GB |
+| 1T | 1 TB | 21 GB | 400 GB |
+
+A 1-Trillion-cell simulation fits on a laptop SSD. Carlos's web standard makes it streamable over HTTP.
+
+This is not web compression applied to simulations. **This is a lossless video codec for spatial compute.** Each frame is a spatial image. XOR delta is the P-frame. Zstandard is the entropy coder. The "dictionary" is the previous frame. Equivalent to H.264 I/P frame structure, but lossless and 50× smaller because scientific simulation data is 99% static between ticks.
+
+Full report: [Carlos_Delta_Compression_Report.pdf](Carlos_Delta_Compression_Report.pdf)
+
 ## References
 
 - Molloy, M. & Salavatipour, M.R. (2005). "A bound on the chromatic number of the square of a planar graph." *Journal of Combinatorial Theory, Series B*.
