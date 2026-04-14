@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Savanna Engine — 1B Cell Playback (No Server)</title>
+<script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1408; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; top: 0; left: 0; right: 0;
+    color: #a09070; font: 14px/1 'SF Mono', 'Menlo', monospace;
+    background: rgba(26,20,8,0.85); padding: 8px 16px;
+    display: flex; align-items: center; gap: 16px; z-index: 10;
+  }
+  #hud .val { color: #c4a35a; font-weight: bold; }
+  #hud .title { font-size: 16px; letter-spacing: 2px; color: #c4a35a; }
+  #cell-counter {
+    position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+    z-index: 30; pointer-events: none; text-align: center;
+    font: bold 48px/1 'SF Mono', monospace; letter-spacing: 2px;
+    text-shadow: 0 0 20px rgba(0,0,0,0.8), 0 0 60px rgba(0,0,0,0.5);
+  }
+  #cell-counter .label { font-size: 14px; letter-spacing: 3px; opacity: 0.7; display: block; margin-bottom: 4px; }
+  #cell-counter .sub { font-size: 11px; opacity: 0.5; display: block; margin-top: 4px; letter-spacing: 1px; }
+  #loading {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #c4a35a; font: 24px 'SF Mono', monospace; z-index: 50;
+  }
+  #bottombar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    color: #5a4a2a; font: 12px/1 'SF Mono', monospace;
+    background: rgba(26,20,8,0.7); padding: 6px 16px;
+    display: flex; gap: 16px; z-index: 10;
+  }
+  #bottombar .key { color: #c4a35a; }
+  #disclaimer {
+    position: fixed; top: 30px; right: 10px; width: 280px;
+    color: #5a4a2a; font: 10px/1.4 'SF Mono', monospace;
+    background: rgba(26,20,8,0.6); padding: 8px 10px; z-index: 9;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+<div id="loading">Loading 1,073,741,824 cells (5.4 MB)...</div>
+<div id="hud" style="display:none">
+  <span class="title">SAVANNA</span>
+  <span>Frame <span class="val" id="hud-frame">0</span>/<span class="val" id="hud-total">0</span></span>
+  <span style="color:#6a9a3a">&#x2B22; <span class="val" id="hud-grass">0</span></span>
+  <span style="color:#d0ccc4">&#x2B22; <span class="val" id="hud-zebra">0</span></span>
+  <span style="color:#c04030">&#x2B22; <span class="val" id="hud-lion">0</span></span>
+  <span class="val" id="hud-fps">0</span><span style="color:#5a4a2a">fps</span>
+  <span style="color:#c4a35a;font-size:11px;">WebGL · No Server · Delta Compressed</span>
+</div>
+<div id="cell-counter" style="display:none"><span class="label">CELLS IN VIEW</span><span id="cc-num">0</span><span class="sub" id="cc-sub"></span></div>
+<div id="disclaimer" style="display:none">Note: This is an amateur engineering project.<br>No competitive claims. Errors likely.<br>Delta compression: Carlos Mateo (MIT).</div>
+<div id="bottombar" style="display:none">
+  <span><span class="key">scroll</span> zoom</span>
+  <span><span class="key">click</span> in</span>
+  <span><span class="key">dblclick</span> out</span>
+  <span><span class="key">space</span> fit</span>
+  <span><span class="key">←→</span> frames</span>
+  <span style="margin-left:auto"><span class="key">5.4 MB</span> for 1,073,741,824 cells × 20 frames</span>
+</div>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+let W, H;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; gl.viewport(0, 0, W, H); }
+resize(); addEventListener('resize', resize);
+
+// Shaders
+const vsrc = `attribute vec2 aPos; varying vec2 vUV; uniform vec2 uOff; uniform float uZoom; uniform vec2 uScr; uniform vec2 uGrid;
+void main() { vec2 w = aPos * uGrid; vec2 s = (w * uZoom + uOff) / uScr * 2.0 - 1.0; s.y = -s.y; gl_Position = vec4(s,0,1); vUV = aPos; }`;
+const fsrc = `precision mediump float; varying vec2 vUV; uniform sampler2D uTex;
+void main() { float e = floor(texture2D(uTex, vUV).r * 255.0 + 0.5); vec3 c;
+if (e < 0.5) c = vec3(0.102,0.078,0.031); else if (e < 1.5) c = vec3(0.227,0.290,0.094);
+else if (e < 2.5) c = vec3(0.910,0.894,0.863); else if (e < 3.5) c = vec3(0.706,0.157,0.118);
+else c = vec3(0.157,0.353,0.627); gl_FragColor = vec4(c,1); }`;
+function mkS(s,t) { const sh = gl.createShader(t); gl.shaderSource(sh,s); gl.compileShader(sh); return sh; }
+const prog = gl.createProgram();
+gl.attachShader(prog, mkS(vsrc, gl.VERTEX_SHADER));
+gl.attachShader(prog, mkS(fsrc, gl.FRAGMENT_SHADER));
+gl.linkProgram(prog); gl.useProgram(prog);
+const aPos = gl.getAttribLocation(prog,'aPos');
+const uOff = gl.getUniformLocation(prog,'uOff'), uZoom = gl.getUniformLocation(prog,'uZoom');
+const uScr = gl.getUniformLocation(prog,'uScr'), uGrid = gl.getUniformLocation(prog,'uGrid');
+const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0,1,0,0,1,1,0,1,1,0,1]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+let GRID_W = 1, GRID_H = 1, frames = [], curFrame = 0;
+let zoom = 1, panX = 0, panY = 0;
+let dragging = false, dragMoved = false, dragStartX, dragStartY, panStartX, panStartY;
+let totalCells = 1073741824;
+let playing = false, playTimer = null;
+
+// Load and decompress delta file
+async function loadPlayback(url) {
+  const resp = await fetch(url);
+  const buf = await resp.arrayBuffer();
+  const view = new DataView(buf);
+  let off = 0;
+  const magic = String.fromCharCode(view.getUint8(0),view.getUint8(1),view.getUint8(2),view.getUint8(3));
+  off = 4;
+  GRID_W = view.getUint32(off, true); off += 4;
+  GRID_H = view.getUint32(off, true); off += 4;
+  const nFrames = view.getUint32(off, true); off += 4;
+  const cellCount = GRID_W * GRID_H;
+  document.getElementById('hud-total').textContent = nFrames;
+
+  // Frame 0: keyframe
+  const sz0 = view.getUint32(off, true); off += 4;
+  const compressed0 = new Uint8Array(buf, off, sz0); off += sz0;
+  const frame0 = pako.inflate(compressed0);
+  frames.push(new Uint8Array(frame0));
+
+  // Frames 1..N: XOR deltas
+  for (let i = 1; i < nFrames; i++) {
+    const sz = view.getUint32(off, true); off += 4;
+    const compDelta = new Uint8Array(buf, off, sz); off += sz;
+    const delta = pako.inflate(compDelta);
+    const prev = frames[i - 1];
+    const curr = new Uint8Array(cellCount);
+    for (let j = 0; j < cellCount; j++) curr[j] = prev[j] ^ delta[j];
+    frames.push(curr);
+  }
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('hud').style.display = 'flex';
+  document.getElementById('cell-counter').style.display = 'block';
+  document.getElementById('bottombar').style.display = 'flex';
+  document.getElementById('disclaimer').style.display = 'block';
+  showFrame(0);
+  zoom = Math.min(W / GRID_W, H / GRID_H) * 0.9;
+  panX = (W - GRID_W * zoom) / 2;
+  panY = (H - GRID_H * zoom) / 2;
+  // Auto-play
+  playing = true;
+  playTimer = setInterval(() => { curFrame = (curFrame + 1) % frames.length; showFrame(curFrame); }, 500);
+}
+
+function showFrame(idx) {
+  const data = frames[idx];
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, GRID_W, GRID_H, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, data);
+  document.getElementById('hud-frame').textContent = idx;
+  // Census
+  let g=0, z=0, l=0;
+  for (let i = 0; i < data.length; i++) { const e = data[i]; if(e===1)g++; else if(e===2)z++; else if(e===3)l++; }
+  document.getElementById('hud-grass').textContent = g.toLocaleString();
+  document.getElementById('hud-zebra').textContent = z.toLocaleString();
+  document.getElementById('hud-lion').textContent = l.toLocaleString();
+}
+
+function render() {
+  gl.clearColor(0.102, 0.078, 0.031, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(prog);
+  gl.uniform2f(uOff, panX, panY); gl.uniform1f(uZoom, zoom);
+  gl.uniform2f(uScr, W, H); gl.uniform2f(uGrid, GRID_W, GRID_H);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+  updateCounter();
+  requestAnimationFrame(render);
+}
+
+function updateCounter() {
+  const vw = Math.min(W / zoom, GRID_W), vh = Math.min(H / zoom, GRID_H);
+  const vp = Math.round(vw * vh);
+  const cpp = totalCells / (GRID_W * GRID_H);
+  const vc = Math.round(vp * cpp);
+  document.getElementById('cc-num').textContent = vc.toLocaleString();
+  document.getElementById('cc-sub').textContent = vp.toLocaleString() + ' px × ' + Math.round(cpp).toLocaleString() + ' cells/px';
+  const mag = Math.log10(Math.max(1, vc));
+  let color;
+  if (mag < 4) color = '#c0c0c0'; else if (mag < 5) color = '#c4a35a';
+  else if (mag < 6) color = '#d4853a'; else if (mag < 7) color = '#e06030';
+  else if (mag < 8) color = '#e03030'; else if (mag < 9) color = '#e02060';
+  else if (mag < 10) color = '#ff00ff'; else color = '#aa00ff';
+  const el = document.getElementById('cell-counter');
+  el.style.color = color;
+  el.style.textShadow = mag >= 9 ? '0 0 20px '+color+',0 0 60px '+color+'80' : '0 0 20px rgba(0,0,0,0.8)';
+}
+
+// Zoom + pan
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) { panX -= e.deltaX; }
+  else { const zf = 1 - e.deltaY * 0.003; panX = e.clientX-(e.clientX-panX)*zf; panY = e.clientY-(e.clientY-panY)*zf; zoom *= zf; }
+  zoom = Math.max(0.0001, Math.min(50, zoom));
+}, {passive:false});
+canvas.addEventListener('mousedown', e => { dragging=true; dragMoved=false; dragStartX=e.clientX; dragStartY=e.clientY; panStartX=panX; panStartY=panY; canvas.style.cursor='grabbing'; });
+canvas.addEventListener('mousemove', e => { if(!dragging)return; if(Math.abs(e.clientX-dragStartX)>3)dragMoved=true; panX=panStartX+(e.clientX-dragStartX); panY=panStartY+(e.clientY-dragStartY); });
+canvas.addEventListener('mouseup', () => { dragging=false; canvas.style.cursor='grab'; });
+canvas.style.cursor = 'grab';
+let clickTimer = null;
+canvas.addEventListener('click', e => { if(dragMoved)return; if(clickTimer){clearTimeout(clickTimer);clickTimer=null;return;} clickTimer=setTimeout(()=>{const zf=2,mx=e.clientX,my=e.clientY;panX=mx-(mx-panX)*zf;panY=my-(my-panY)*zf;zoom*=zf;clickTimer=null;},250); });
+canvas.addEventListener('dblclick', e => { e.preventDefault(); if(clickTimer){clearTimeout(clickTimer);clickTimer=null;} const zf=0.5;panX=e.clientX-(e.clientX-panX)*zf;panY=e.clientY-(e.clientY-panY)*zf;zoom*=zf; });
+document.addEventListener('keydown', e => {
+  if (e.code==='Space') { e.preventDefault(); zoom=Math.min(W/GRID_W,H/GRID_H)*0.9; panX=(W-GRID_W*zoom)/2; panY=(H-GRID_H*zoom)/2; }
+  if (e.code==='ArrowRight' && frames.length) { curFrame=(curFrame+1)%frames.length; showFrame(curFrame); }
+  if (e.code==='ArrowLeft' && frames.length) { curFrame=(curFrame-1+frames.length)%frames.length; showFrame(curFrame); }
+  if (e.code==='KeyP') { playing=!playing; if(playing)playTimer=setInterval(()=>{curFrame=(curFrame+1)%frames.length;showFrame(curFrame);},500); else clearInterval(playTimer); }
+});
+
+requestAnimationFrame(render);
+loadPlayback('playback_1B.bin');
+</script>
+</body>
+</html>
