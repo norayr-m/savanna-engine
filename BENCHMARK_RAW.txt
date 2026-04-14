@@ -4,6 +4,14 @@ Machine: Apple M5 Max, 128 GB unified memory
 Date: 2026-04-11T22:59:45Z
 ============================================================
 
+NOTE: The "cu/s" (cell-updates/sec) values in this raw output used
+an incorrect multiplier (×13 dispatches instead of ×7 effective passes).
+Correct GCUPS = cells × 7 × TPS / 1e9.
+See BENCHMARK.md and BENCHMARK_MORTON.md for corrected numbers.
+Peak: 15.8 GCUPS (Morton, 64M cells).
+
+============================================================
+
 Grid: 1024×1024 = 1M cells, 100 ticks/run, 10 runs
   run 1: 0.60ms/tick 1675tps 22.8B cu/s
   run 2: 0.65ms/tick 1547tps 21.1B cu/s
