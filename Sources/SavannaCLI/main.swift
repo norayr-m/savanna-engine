@@ -20,8 +20,19 @@ func arg(_ name: String, default val: String) -> String {
     return val
 }
 let benchMode = args.contains("--bench")
-let gridSize = Int(arg("grid", default: "1024"))!
-let maxTicks = Int(arg("ticks", default: "0"))!  // 0 = infinite
+
+// Time: 1 tick = 6 hours, 4 ticks/day, 1460 ticks/year
+let ticksPerDay = 4
+let hoursPerTick = 6
+
+// Parse --days or --ticks
+let maxTicks: Int
+if args.contains("--days") {
+    let days = Int(arg("days", default: "30"))!
+    maxTicks = days * ticksPerDay
+} else {
+    maxTicks = Int(arg("ticks", default: "0"))!  // 0 = infinite
+}
 let ramGB = Int(arg("ram", default: "4"))!        // GB for ring buffer
 let recordDir = args.contains("--record") ? arg("record", default: "savanna_rec") : nil
 let checkpointInterval = Int(arg("checkpoint", default: "0"))!  // 0 = disabled
@@ -30,8 +41,102 @@ let snapshotPath = "savanna_state.bin"
 let dayLength = 730    // 6 months of day (was 10 — caused strobe flicker)
 let nightLength = 730  // 6 months of night
 
+// Parse --cells (1M, 100M, 1B, 1T) or --grid (side length)
+func parseCells(_ s: String) -> Int {
+    let upper = s.uppercased().trimmingCharacters(in: .whitespaces)
+    var num = upper
+    var multiplier = 1
+    if num.hasSuffix("T") { num = String(num.dropLast()); multiplier = 1_000_000_000_000 }
+    else if num.hasSuffix("B") { num = String(num.dropLast()); multiplier = 1_000_000_000 }
+    else if num.hasSuffix("M") { num = String(num.dropLast()); multiplier = 1_000_000 }
+    else if num.hasSuffix("K") { num = String(num.dropLast()); multiplier = 1_000 }
+    if let n = Double(num) { return Int(n * Double(multiplier)) }
+    return 1_048_576  // default 1M
+}
+
+let gridSize: Int
+if args.contains("--cells") {
+    let cellStr = arg("cells", default: "1M")
+    let totalCells = parseCells(cellStr)
+    gridSize = Int(sqrt(Double(totalCells)))
+    // Round to nearest power of 2 for hex grid efficiency
+    let log2 = Int(log2(Double(gridSize)))
+    let rounded = 1 << log2
+    if abs(rounded * rounded - totalCells) < abs((rounded * 2) * (rounded * 2) - totalCells) {
+        // rounded is closer
+    }
+    print("  --cells \(cellStr) → grid \(gridSize)×\(gridSize) = \(gridSize * gridSize) cells")
+} else {
+    gridSize = Int(arg("grid", default: "1024"))!
+}
+
 let width = gridSize
 let height = gridSize
+let totalCellCount = width * height
+
+// ── Disk space estimation + confirmation ────────────
+if let dir = recordDir, maxTicks > 0 {
+    let rawPerFrame = totalCellCount  // 1 byte per cell
+    let estimatedDeltaPerFrame = rawPerFrame / 50  // ~50× compression
+    let estimatedKeyframe = rawPerFrame / 2  // first frame ~2× compressed
+    let estimatedTotal = estimatedKeyframe + estimatedDeltaPerFrame * (maxTicks - 1)
+    let rawTotal = rawPerFrame * maxTicks
+
+    func humanSize(_ bytes: Int) -> String {
+        if bytes >= 1_000_000_000_000 { return String(format: "%.1f TB", Double(bytes) / 1e12) }
+        if bytes >= 1_000_000_000 { return String(format: "%.1f GB", Double(bytes) / 1e9) }
+        if bytes >= 1_000_000 { return String(format: "%.1f MB", Double(bytes) / 1e6) }
+        if bytes >= 1_000 { return String(format: "%.1f KB", Double(bytes) / 1e3) }
+        return "\(bytes) B"
+    }
+
+    func humanCells(_ n: Int) -> String {
+        if n >= 1_000_000_000_000 { return String(format: "%.1fT", Double(n) / 1e12) }
+        if n >= 1_000_000_000 { return String(format: "%.1fB", Double(n) / 1e9) }
+        if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1e6) }
+        if n >= 1_000 { return String(format: "%.0fK", Double(n) / 1e3) }
+        return "\(n)"
+    }
+
+    let simDays = maxTicks / ticksPerDay
+    let simYears = Double(simDays) / 365.0
+    let playbackSec = Double(maxTicks) / 60.0
+    let playbackStr = playbackSec < 60 ? String(format: "%.1fs", playbackSec)
+                    : String(format: "%.1f min", playbackSec / 60.0)
+
+    // Check available disk
+    let diskFree = (try? FileManager.default.attributesOfFileSystem(
+        forPath: dir)[.systemFreeSize] as? Int) ?? 0
+
+    print()
+    print("  ╔═══════════════════════════════════════════════╗")
+    print("  ║         SAVANNA SIMULATION PLAN               ║")
+    print("  ╠═══════════════════════════════════════════════╣")
+    print("  ║  \(humanCells(totalCellCount)) cells × \(simDays) days (\(String(format: "%.1f", simYears)) years)".padding(toLength: 51, withPad: " ", startingAt: 0) + "║")
+    print("  ║  1 tick = \(hoursPerTick) hours → \(maxTicks) ticks total".padding(toLength: 51, withPad: " ", startingAt: 0) + "║")
+    print("  ╠═══════════════════════════════════════════════╣")
+    print("  ║  Raw data:         \(humanSize(rawTotal))".padding(toLength: 51, withPad: " ", startingAt: 0) + "║")
+    print("  ║  Carlos Deltas:    ~\(humanSize(estimatedTotal)) (est. 50×)".padding(toLength: 51, withPad: " ", startingAt: 0) + "║")
+    print("  ║  Disk free:        \(humanSize(diskFree))".padding(toLength: 51, withPad: " ", startingAt: 0) + "║")
+    print("  ╠═══════════════════════════════════════════════╣")
+    print("  ║  Playback (1x 60fps): \(playbackStr)".padding(toLength: 51, withPad: " ", startingAt: 0) + "║")
+    print("  ║  Output: \(dir)/recording.savanna".padding(toLength: 51, withPad: " ", startingAt: 0) + "║")
+    print("  ╚═══════════════════════════════════════════════╝")
+
+    if estimatedTotal > diskFree {
+        print()
+        print("  ⚠️  WARNING: Estimated size (\(humanSize(estimatedTotal))) exceeds free disk (\(humanSize(diskFree)))")
+    }
+
+    print()
+    print("  Reserve \(humanSize(estimatedTotal)) on disk and start? [Y/n] ", terminator: "")
+    fflush(stdout)
+    if let answer = readLine()?.trimmingCharacters(in: .whitespaces).lowercased(),
+       answer == "n" || answer == "no" {
+        print("  Aborted.")
+        exit(0)
+    }
+}
 
 // ── Banner ───────────────────────────────────────────────
 print()
