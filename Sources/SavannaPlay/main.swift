@@ -21,11 +21,13 @@ let port: UInt16 = {
     return 8800
 }()
 
-// ── Decode ──────────────────────────────────────────
+// ── Streaming Decoder (JIT — no preload, no thumbnails) ──
+// Reads .savanna file, decodes frames on demand, downsamples on the fly.
+// Only keeps ONE frame in RAM. Instant startup. Scales to any size.
 print("Loading \(filePath)...")
-let decoder: CarlosDelta.Decoder
+let decoder: CarlosDelta.StreamingDecoder
 do {
-    decoder = try CarlosDelta.Decoder(path: filePath)
+    decoder = try CarlosDelta.StreamingDecoder(path: filePath)
 } catch {
     print("Error: \(error)")
     exit(1)
@@ -33,61 +35,10 @@ do {
 print("  Grid: \(decoder.width)×\(decoder.height)")
 print("  Frames: \(decoder.frameCount)")
 print("  Total cells: \(decoder.totalCells)")
-
-// ── GPU RG-LOD: Pre-downsample for browser ──────────
-// If grid > 2048, downsample all frames at startup using majority vote.
-// This is the "self-similar" LOD — same function for all scales.
-// Ideally uses Metal GPU (generateLOD). Fallback: Swift CPU stride.
-let maxDisplay = 2048
-let needsDownsample = decoder.width > maxDisplay || decoder.height > maxDisplay
-let displayW: Int
-let displayH: Int
-var displayFrames: [[Int8]]?
-
-if needsDownsample {
-    let step = max(decoder.width / maxDisplay, decoder.height / maxDisplay)
-    displayW = decoder.width / step
-    displayH = decoder.height / step
-    print("  LOD: \(decoder.width)×\(decoder.height) → \(displayW)×\(displayH) (step \(step))")
-
-    var downsampled = [[Int8]]()
-    for i in 0..<decoder.frameCount {
-        let src = decoder.frame(i)
-        var dst = [Int8](repeating: 0, count: displayW * displayH)
-        // Majority vote per block (vectorized in Swift)
-        for dy in 0..<displayH {
-            for dx in 0..<displayW {
-                var counts = [0, 0, 0, 0, 0]  // empty, grass, zebra, lion, water
-                for sy in 0..<step {
-                    for sx in 0..<step {
-                        let srcIdx = (dy * step + sy) * decoder.width + (dx * step + sx)
-                        if srcIdx < src.count {
-                            let e = Int(src[srcIdx]) & 0x7
-                            if e < 5 { counts[e] += 1 }
-                        }
-                    }
-                }
-                // Majority vote
-                var best = 0, bestCount = counts[0]
-                for e in 1..<5 { if counts[e] > bestCount { best = e; bestCount = counts[e] } }
-                // Boost rare entities
-                let bs = step * step
-                if counts[2] * 100 > bs * 3 { best = 2 }  // zebra >3%
-                if counts[3] * 100 > bs * 1 { best = 3 }  // lion >1%
-                dst[dy * displayW + dx] = Int8(best)
-            }
-        }
-        downsampled.append(dst)
-        if (i + 1) % 10 == 0 || i == 0 {
-            print("    Frame \(i + 1)/\(decoder.frameCount) downsampled")
-        }
-    }
-    displayFrames = downsampled
-    print("  LOD complete: \(downsampled.count) frames at \(displayW)×\(displayH)")
-} else {
-    displayW = decoder.width
-    displayH = decoder.height
+if decoder.needsLOD {
+    print("  LOD: \(decoder.width)×\(decoder.height) → \(decoder.displayW)×\(decoder.displayH) (step \(decoder.step), JIT)")
 }
+print("  Mode: streaming (JIT decode + downsample per request)")
 
 // ── HTTP Server ─────────────────────────────────────
 import Foundation
@@ -127,16 +78,9 @@ func handleRequest(_ clientFd: Int32) {
         contentType = "application/octet-stream"
         let frameIdx = currentFrame
         currentFrame = (currentFrame + 1) % decoder.frameCount
-        // Serve downsampled frame if available, otherwise full
-        let frame: [Int8]
-        let fw, fh: Int
-        if let df = displayFrames {
-            frame = df[frameIdx]
-            fw = displayW; fh = displayH
-        } else {
-            frame = decoder.frame(frameIdx)
-            fw = decoder.width; fh = decoder.height
-        }
+        // JIT: decode + downsample on demand (one frame in RAM)
+        let frame = decoder.displayFrame(frameIdx)
+        let fw = decoder.displayW, fh = decoder.displayH
         var w = UInt32(fw), h = UInt32(fh)
         var tick = UInt32(frameIdx), day: UInt32 = 1
         var header = Data()

@@ -186,6 +186,144 @@ public struct CarlosDelta {
         }
     }
 
+    // MARK: - Streaming Decoder (JIT, no preload)
+
+    /// Streams frames from disk. Only keeps current frame in RAM.
+    /// Downsamples on-the-fly if grid > maxDisplay.
+    public final class StreamingDecoder {
+        public let width: Int
+        public let height: Int
+        public let frameCount: Int
+        public let totalCells: UInt64
+        let data: Data
+        var frameOffsets: [Int]  // byte offset of each compressed frame
+        var currentFrame: [UInt8]  // last decoded full-res frame
+        var currentIndex: Int = -1
+        let cellCount: Int
+
+        // LOD
+        public let displayW: Int
+        public let displayH: Int
+        public let step: Int
+        public let needsLOD: Bool
+
+        public init(path: String, maxDisplay: Int = 2048) throws {
+            self.data = try Data(contentsOf: URL(fileURLWithPath: path))
+            var offset = 0
+
+            guard data.count >= 24 else { throw DeltaError.invalidFormat }
+            let m = [UInt8](data[0..<4])
+            guard m == CarlosDelta.magic else { throw DeltaError.invalidMagic }
+
+            let w = Int(data[4..<8].withUnsafeBytes { $0.load(as: UInt32.self) })
+            let h = Int(data[8..<12].withUnsafeBytes { $0.load(as: UInt32.self) })
+            let nf = Int(data[12..<16].withUnsafeBytes { $0.load(as: UInt32.self) })
+            let tc = data[16..<24].withUnsafeBytes { $0.load(as: UInt64.self) }
+
+            self.width = w
+            self.height = h
+            self.frameCount = nf
+            self.totalCells = tc
+            self.cellCount = w * h
+            self.currentFrame = [UInt8](repeating: 0, count: cellCount)
+            offset = 24
+
+            // Pre-scan frame offsets (fast — just reads sizes, no decompression)
+            var offsets = [Int]()
+            for _ in 0..<frameCount {
+                offsets.append(offset)
+                let sz = Int(data[offset..<offset+4].withUnsafeBytes { $0.load(as: UInt32.self) })
+                offset += 4 + sz
+            }
+            self.frameOffsets = offsets
+
+            // LOD setup
+            if width > maxDisplay || height > maxDisplay {
+                self.step = max(width / maxDisplay, height / maxDisplay)
+                self.displayW = width / step
+                self.displayH = height / step
+                self.needsLOD = true
+            } else {
+                self.step = 1
+                self.displayW = width
+                self.displayH = height
+                self.needsLOD = false
+            }
+        }
+
+        /// Decode frame i (JIT). Handles sequential and random access.
+        func decodeFrame(_ index: Int) {
+            if index == currentIndex { return }
+
+            // Must decode sequentially from nearest decoded point
+            if index <= currentIndex || currentIndex < 0 {
+                // Reset — decode from frame 0
+                let off = frameOffsets[0]
+                let sz = Int(data[off..<off+4].withUnsafeBytes { $0.load(as: UInt32.self) })
+                let compressed = [UInt8](data[off+4..<off+4+sz])
+                currentFrame = Decoder.decompress(compressed, expectedSize: cellCount)
+                currentIndex = 0
+            }
+
+            // Decode forward to target
+            while currentIndex < index {
+                let next = currentIndex + 1
+                let off = frameOffsets[next]
+                let sz = Int(data[off..<off+4].withUnsafeBytes { $0.load(as: UInt32.self) })
+                let compressed = [UInt8](data[off+4..<off+4+sz])
+                let delta = Decoder.decompress(compressed, expectedSize: cellCount)
+                for j in 0..<cellCount { currentFrame[j] = currentFrame[j] ^ delta[j] }
+                currentIndex = next
+            }
+        }
+
+        /// Get frame as Int8 — full resolution
+        public func frame(_ index: Int) -> [Int8] {
+            decodeFrame(min(index, frameCount - 1))
+            return currentFrame.map { Int8(bitPattern: $0) }
+        }
+
+        /// Get downsampled frame for browser (majority vote + trophic boost)
+        public func displayFrame(_ index: Int) -> [Int8] {
+            decodeFrame(min(index, frameCount - 1))
+            if !needsLOD { return currentFrame.map { Int8(bitPattern: $0) } }
+
+            var dst = [Int8](repeating: 0, count: displayW * displayH)
+            let s = step
+            let bs = s * s
+            for dy in 0..<displayH {
+                for dx in 0..<displayW {
+                    var counts = (0, 0, 0, 0, 0)  // inline for speed
+                    for sy in 0..<s {
+                        let rowOff = (dy * s + sy) * width + dx * s
+                        for sx in 0..<s {
+                            let e = Int(currentFrame[rowOff + sx]) & 0x7
+                            switch e {
+                            case 0: counts.0 += 1
+                            case 1: counts.1 += 1
+                            case 2: counts.2 += 1
+                            case 3: counts.3 += 1
+                            case 4: counts.4 += 1
+                            default: break
+                            }
+                        }
+                    }
+                    // Majority
+                    var best: Int8 = 0; var bestC = counts.0
+                    if counts.1 > bestC { best = 1; bestC = counts.1 }
+                    if counts.2 > bestC { best = 2; bestC = counts.2 }
+                    if counts.3 > bestC { best = 3; bestC = counts.3 }
+                    if counts.4 > bestC { best = 4 }
+                    // Trophic boost
+                    if counts.2 * 100 > bs * 3 { best = 2 }
+                    if counts.3 * 100 > bs * 1 { best = 3 }
+                    dst[dy * displayW + dx] = best
+                }
+            }
+            return dst
+        }
+    }
+
     enum DeltaError: Error {
         case invalidFormat
         case invalidMagic
