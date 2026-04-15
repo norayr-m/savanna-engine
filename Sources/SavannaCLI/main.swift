@@ -248,6 +248,165 @@ if let dir = recordDir {
     }
 }
 
+// ── Built-in HTTP Server (replaces Python serve.py) ──────
+import Darwin
+
+let serverPort: UInt16 = {
+    if let i = args.firstIndex(of: "--port"), i + 1 < args.count {
+        return UInt16(args[i + 1]) ?? 8800
+    }
+    return 8800
+}()
+
+// Shared state for HTTP server (written by sim, read by server)
+var latestTelemetry = ""
+var pendingCommand = ""
+let commandLock = NSLock()
+
+// Snapshot buffer: written by sim thread, read by HTTP thread
+var snapshotData = Data()
+let snapshotLock = NSLock()
+
+func buildSnapshot() {
+    let entities = engine.readEntitiesRowMajor()
+    var w = UInt32(width), h = UInt32(height)
+    var t = UInt32(simTick), d: UInt32 = 1
+    var data = Data()
+    data.append(Data(bytes: &w, count: 4))
+    data.append(Data(bytes: &h, count: 4))
+    data.append(Data(bytes: &t, count: 4))
+    data.append(Data(bytes: &d, count: 4))
+    entities.withUnsafeBytes { data.append(Data($0)) }
+    snapshotLock.lock()
+    snapshotData = data
+    snapshotLock.unlock()
+}
+
+func handleHTTPRequest(_ clientFd: Int32) {
+    var buffer = [UInt8](repeating: 0, count: 4096)
+    let n = read(clientFd, &buffer, buffer.count)
+    guard n > 0 else { close(clientFd); return }
+
+    let request = String(bytes: buffer[0..<n], encoding: .utf8) ?? ""
+    let reqPath = request.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+
+    var responseBody = Data()
+    var contentType = "text/plain"
+    var statusLine = "HTTP/1.1 200 OK\r\n"
+
+    if reqPath == "/info" || reqPath == "/info?" {
+        contentType = "application/json"
+        let info = "{\"width\":\(width),\"height\":\(height),\"frame_count\":0,\"cells\":\(width*height),\"total_cells\":\(width*height)}"
+        responseBody = info.data(using: .utf8)!
+
+    } else if reqPath.hasPrefix("/savanna_state.bin") {
+        contentType = "application/octet-stream"
+        snapshotLock.lock()
+        responseBody = snapshotData
+        snapshotLock.unlock()
+
+    } else if reqPath == "/savanna_telemetry.json" {
+        contentType = "application/json"
+        responseBody = latestTelemetry.data(using: .utf8) ?? Data()
+
+    } else if reqPath == "/reset" {
+        commandLock.lock()
+        pendingCommand = "reset"
+        commandLock.unlock()
+        responseBody = "ok".data(using: .utf8)!
+
+    } else if reqPath == "/scenarios" {
+        contentType = "application/json"
+        var scenarios = [[String: Any]]()
+        if let files = try? FileManager.default.contentsOfDirectory(atPath: "scenarios") {
+            for f in files.sorted() where f.hasSuffix(".json") {
+                if let data = try? Data(contentsOf: URL(fileURLWithPath: "scenarios/\(f)")),
+                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    scenarios.append(obj)
+                }
+            }
+        }
+        if let json = try? JSONSerialization.data(withJSONObject: scenarios) {
+            responseBody = json
+        }
+
+    } else if reqPath.hasPrefix("/load_scenario") {
+        contentType = "application/json"
+        let query = reqPath.split(separator: "?").dropFirst().first.map(String.init) ?? ""
+        let name = query.replacingOccurrences(of: "name=", with: "").removingPercentEncoding ?? ""
+        if let files = try? FileManager.default.contentsOfDirectory(atPath: "scenarios") {
+            for f in files.sorted() where f.hasSuffix(".json") {
+                if let data = try? Data(contentsOf: URL(fileURLWithPath: "scenarios/\(f)")),
+                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let sName = obj["name"] as? String, sName == name,
+                   let params = obj["params"] {
+                    if let paramsData = try? JSONSerialization.data(withJSONObject: params) {
+                        commandLock.lock()
+                        pendingCommand = "scenario \(String(data: paramsData, encoding: .utf8) ?? "{}")"
+                        commandLock.unlock()
+                    }
+                    responseBody = "{\"ok\":true}".data(using: .utf8)!
+                    break
+                }
+            }
+        }
+        if responseBody.isEmpty { responseBody = "{\"ok\":false}".data(using: .utf8)! }
+
+    } else if reqPath == "/set_speed" || reqPath.hasPrefix("/set_speed?") {
+        responseBody = "ok".data(using: .utf8)!
+
+    } else {
+        // Static files from current directory
+        let filename = String(reqPath.dropFirst())
+        let url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(filename)
+        if let data = try? Data(contentsOf: url) {
+            responseBody = data
+            if filename.hasSuffix(".html") { contentType = "text/html" }
+            else if filename.hasSuffix(".js") { contentType = "application/javascript" }
+            else if filename.hasSuffix(".css") { contentType = "text/css" }
+            else { contentType = "application/octet-stream" }
+        } else {
+            statusLine = "HTTP/1.1 404 Not Found\r\n"
+            responseBody = "404".data(using: .utf8)!
+        }
+    }
+
+    let headers = "\(statusLine)Content-Type: \(contentType)\r\nContent-Length: \(responseBody.count)\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
+    let headerData = headers.data(using: .utf8)!
+    headerData.withUnsafeBytes { _ = write(clientFd, $0.baseAddress!, headerData.count) }
+    responseBody.withUnsafeBytes { _ = write(clientFd, $0.baseAddress!, responseBody.count) }
+    close(clientFd)
+}
+
+// Start HTTP server on background thread
+if !benchMode {
+    let serverFd = socket(AF_INET, SOCK_STREAM, 0)
+    var opt: Int32 = 1
+    setsockopt(serverFd, SOL_SOCKET, SO_REUSEADDR, &opt, socklen_t(MemoryLayout<Int32>.size))
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = serverPort.bigEndian
+    addr.sin_addr.s_addr = INADDR_ANY.bigEndian
+    withUnsafePointer(to: &addr) { ptr in
+        ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+            bind(serverFd, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    listen(serverFd, 10)
+    print("  HTTP server: http://localhost:\(serverPort)/savanna_live.html")
+
+    DispatchQueue.global(qos: .userInteractive).async {
+        while true {
+            let clientFd = accept(serverFd, nil, nil)
+            if clientFd >= 0 {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    handleHTTPRequest(clientFd)
+                }
+            }
+        }
+    }
+}
+
 // ── Run ──────────────────────────────────────────────────
 let tickLimit = maxTicks > 0 ? maxTicks : Int.max
 var tickCount = 0
@@ -275,13 +434,9 @@ for t in 0..<tickLimit {
     tickCount += 1
     simTick += 1
 
-    // Snapshot for HTML viewer (skip in bench mode and record mode)
+    // Build snapshot in memory for HTTP server (no disk write)
     if !benchMode && recordDir == nil {
-        if let rec = recorder, rec.frameCount > 0 {
-            rec.writeLiveSnapshot(to: snapshotPath, width: width, height: height, tick: simTick, isDay: isDay)
-        } else {
-            engine.writeSnapshot(to: snapshotPath, width: width, height: height, tick: simTick, isDay: isDay)
-        }
+        buildSnapshot()
     }
 
     // Frame recording — Carlos Delta encoding (XOR + zlib, Morton order on disk)
@@ -329,9 +484,9 @@ for t in 0..<tickLimit {
 
         print("  \(simTick)\t\(c.grass)\t\(c.zebra)\t\(c.lion)\t\(fmt(avgMs,2)) ms\t\(Int(tps))\t\(fmt(gcups,1)) B\t\(phase)")
 
-        // Telemetry for HTML stats panel
+        // Telemetry — in memory for HTTP server (no disk write)
         if !benchMode {
-            let telemetry = """
+            latestTelemetry = """
             {"tick":\(simTick),"day":\(simTick/4),"year":\(fmt(Double(simTick)/1460.0, 2)),\
             "ms":\(fmt(avgMs, 2)),"tps":\(Int(tps)),"speed":1,\
             "grass":\(c.grass),"zebra":\(c.zebra),"lion":\(c.lion),"energy":\(c.totalEnergy),\
@@ -340,14 +495,17 @@ for t in 0..<tickLimit {
             "grassPct":\(fmt(Double(c.grass)/Double(width*height)*100, 1)),\
             "nodes":\(width*height),"colors":7}
             """
-            try? telemetry.write(toFile: "savanna_telemetry.json", atomically: true, encoding: .utf8)
         }
 
         lastPrint = now
     }
 
-    // Check for commands
-    if !benchMode, let cmd = try? String(contentsOfFile: "savanna_cmd.txt").trimmingCharacters(in: .whitespacesAndNewlines), !cmd.isEmpty {
+    // Check for commands (in-memory from HTTP server, no disk polling)
+    commandLock.lock()
+    let cmd = pendingCommand
+    pendingCommand = ""
+    commandLock.unlock()
+    if !cmd.isEmpty {
         if cmd.hasPrefix("archive") {
             let path = cmd.replacingOccurrences(of: "archive ", with: "")
             recorder?.archive(to: path, width: width, height: height)
@@ -378,8 +536,17 @@ for t in 0..<tickLimit {
             gauges.withUnsafeBytes { engine.gaugeBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: gauges.count * 2) }
             orientations.withUnsafeBytes { engine.orientationBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: orientations.count) }
             totalComputeTime = 0; tickCount = 0; simTick = 0
+            // Immediately update snapshot + telemetry after reset
+            buildSnapshot()
+            let c = engine.census()
+            latestTelemetry = """
+            {"tick":0,"day":0,"year":0,"ms":0,"tps":0,"speed":1,\
+            "grass":\(c.grass),"zebra":\(c.zebra),"lion":\(c.lion),"energy":0,\
+            "dG":0,"dZ":0,"dL":0,"ratio":0,"grassPct":0,\
+            "nodes":\(width*height),"colors":7}
+            """
+            print("  [RESET] grass=\(c.grass) zebra=\(c.zebra) lion=\(c.lion)")
         }
-        try? "".write(toFile: "savanna_cmd.txt", atomically: true, encoding: .utf8)
     }
 }
 

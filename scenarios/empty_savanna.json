@@ -1,0 +1,18 @@
+{
+  "name": "Empty Savanna",
+  "description": "Grass + water only. Watch the grass grow. Zen mode.",
+  "emoji": "🌿",
+  "shortcut": "5",
+  "params": {
+    "zebraFrac": 0.0,
+    "lionFrac": 0.0,
+    "grassFrac": 0.80,
+    "killEnergy": 2000,
+    "splitEnergy": 6000,
+    "foodEnergy": 150,
+    "bmrLionActive": 3,
+    "satiationThresh": 4000,
+    "huntSuccess": 20,
+    "windEnabled": true
+  }
+}

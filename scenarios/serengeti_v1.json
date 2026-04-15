@@ -1,0 +1,18 @@
+{
+  "name": "Serengeti v1",
+  "description": "Real ratios + wind + rivers. 20% hunt success. First bio attempt.",
+  "emoji": "🌍",
+  "shortcut": "3",
+  "params": {
+    "zebraFrac": 0.286,
+    "lionFrac": 0.00286,
+    "grassFrac": 0.80,
+    "killEnergy": 2000,
+    "splitEnergy": 6000,
+    "foodEnergy": 150,
+    "bmrLionActive": 3,
+    "satiationThresh": 4000,
+    "huntSuccess": 20,
+    "windEnabled": true
+  }
+}

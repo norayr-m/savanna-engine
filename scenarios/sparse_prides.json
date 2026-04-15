@@ -1,0 +1,18 @@
+{
+  "name": "Sparse Prides",
+  "description": "50 prides on full Serengeti. Realistic density. Watch the hunt.",
+  "emoji": "🦁",
+  "shortcut": "4",
+  "params": {
+    "zebraFrac": 0.286,
+    "lionFrac": 0.00005,
+    "grassFrac": 0.80,
+    "killEnergy": 2000,
+    "splitEnergy": 6000,
+    "foodEnergy": 150,
+    "bmrLionActive": 3,
+    "satiationThresh": 4000,
+    "huntSuccess": 20,
+    "windEnabled": true
+  }
+}
