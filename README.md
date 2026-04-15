@@ -10,6 +10,17 @@ An ultra-scale spatial computation engine running on Apple Metal, featuring lock
 
 > The biology is the test workload. The engine is a spatial lattice compute machine.
 
+### Pipeline
+
+```
+GPU Simulation → Carlos Delta Encoder → .savanna file → Carlos Delta Decoder → GPU LOD → Browser
+     ↑                   ↑                   ↑                    ↑              ↑          ↑
+  savanna-cli     XOR + zlib           one file          XOR + inflate     downsample    WebGL
+  (Metal GPU)    (50× lossless)       on disk           (at startup)     (at startup)   (60fps)
+```
+
+Full architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
+
 [**→ 1B Cell Playback (no server, 5.4 MB)**](https://norayr-m.github.io/savanna-engine/playback.html) | [**→ 100B Cell Playback (YouTube)**](https://youtu.be/6QiU7kUD3Os) | [**→ Interactive Presentation**](https://norayr-m.github.io/savanna-engine/) | [**→ About**](https://norayr-m.github.io/savanna-engine/about.html) | [**→ Benchmark**](BENCHMARK.md) | [**→ Morton Z-Curve: 2× faster at 1B cells**](https://norayr-m.github.io/savanna-engine/morton_charts.html)
 
 ## What This Is
