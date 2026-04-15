@@ -65,7 +65,7 @@ public struct CarlosDelta {
     /// Encodes frames incrementally. Call `addFrame` for each tick, then `finalize`.
     /// I-frames (keyframes) every `keyframeInterval` frames. P-frames (XOR deltas) between.
     public final class Encoder {
-        let url: URL
+        public let url: URL
         let width: UInt32
         let height: UInt32
         let totalCells: UInt64
@@ -171,7 +171,8 @@ public struct CarlosDelta {
         public let frameCount: Int
         public let totalCells: UInt64
         public let keyframeInterval: Int
-        let frames: [[UInt8]]  // decoded entity arrays (row-major)
+        public let isMorton: Bool
+        let frames: [[UInt8]]  // decoded entity arrays
         let mortonToNode: [Int32]
 
         public init(path: String) throws {
@@ -208,9 +209,11 @@ public struct CarlosDelta {
             let kfiCandidate = Int(data[24..<28].withUnsafeBytes { $0.load(as: UInt32.self) })
             if kfiCandidate > 0 && kfiCandidate <= 1000 {
                 self.keyframeInterval = kfiCandidate
+                self.isMorton = true
                 offset = 28
             } else {
-                self.keyframeInterval = 0  // v1: only frame 0 is keyframe
+                self.keyframeInterval = 0
+                self.isMorton = false
                 offset = 24
             }
 
@@ -237,17 +240,22 @@ public struct CarlosDelta {
                 }
             }
             self.frames = decoded
-            self.mortonToNode = CarlosDelta.buildMortonToNode(width: width, height: height)
+            self.mortonToNode = isMorton ?
+                CarlosDelta.buildMortonToNode(width: width, height: height) : []
         }
 
-        /// Get frame as Int8 array (entity codes), de-Mortoned to row-major.
+        /// Get frame as Int8 array (entity codes), de-Mortoned to row-major if v2.
         public func frame(_ index: Int) -> [Int8] {
             let f = frames[min(index, frameCount - 1)]
-            var rm = [Int8](repeating: 0, count: f.count)
-            for m in 0..<f.count {
-                rm[Int(mortonToNode[m])] = Int8(bitPattern: f[m])
+            if isMorton {
+                var rm = [Int8](repeating: 0, count: f.count)
+                for m in 0..<f.count {
+                    rm[Int(mortonToNode[m])] = Int8(bitPattern: f[m])
+                }
+                return rm
+            } else {
+                return f.map { Int8(bitPattern: $0) }
             }
-            return rm
         }
 
         /// Zlib decompress
@@ -274,13 +282,14 @@ public struct CarlosDelta {
         public let frameCount: Int
         public let totalCells: UInt64
         public let keyframeInterval: Int
+        public let isMorton: Bool  // v2 = Morton on disk, v1 = row-major
         let data: Data
         var frameOffsets: [Int]  // byte offset of each compressed frame
-        var currentFrame: [UInt8]  // last decoded full-res frame (Morton order)
+        var currentFrame: [UInt8]  // last decoded full-res frame
         var currentIndex: Int = -1
         let cellCount: Int
 
-        // Morton Z-curve: mortonToNode[rank] = row-major index
+        // Morton Z-curve: mortonToNode[rank] = row-major index (only used if isMorton)
         let mortonToNode: [Int32]
 
         // LOD cache: decode once, serve from cache after
@@ -313,12 +322,16 @@ public struct CarlosDelta {
             self.currentFrame = [UInt8](repeating: 0, count: cellCount)
 
             // v2 header: keyframe interval at offset 24 (28-byte header)
+            // v1: row-major on disk, no keyframe interval
+            // v2: Morton on disk, has keyframe interval (1..1000)
             let kfiCandidate = Int(data[24..<28].withUnsafeBytes { $0.load(as: UInt32.self) })
             if kfiCandidate > 0 && kfiCandidate <= 1000 {
                 self.keyframeInterval = kfiCandidate
+                self.isMorton = true
                 offset = 28
             } else {
                 self.keyframeInterval = 0
+                self.isMorton = false  // v1: row-major, no de-Morton needed
                 offset = 24
             }
 
@@ -332,8 +345,12 @@ public struct CarlosDelta {
             self.frameOffsets = offsets
             self.displayCache = Array(repeating: nil, count: offsets.count)
 
-            // Morton mapping (deterministic from dimensions)
-            self.mortonToNode = CarlosDelta.buildMortonToNode(width: w, height: h)
+            // Morton mapping (only needed for v2 Morton files)
+            if isMorton {
+                self.mortonToNode = CarlosDelta.buildMortonToNode(width: w, height: h)
+            } else {
+                self.mortonToNode = []  // not used for v1
+            }
 
             // LOD setup
             if width > maxDisplay || height > maxDisplay {
@@ -397,15 +414,18 @@ public struct CarlosDelta {
             }
         }
 
-        /// Get frame as Int8 — full resolution, de-Mortoned to row-major.
+        /// Get frame as Int8 — full resolution, de-Mortoned to row-major if v2.
         public func frame(_ index: Int) -> [Int8] {
             decodeFrame(min(index, frameCount - 1))
-            // De-Morton: mortonToNode[rank] = row-major index
-            var rm = [Int8](repeating: 0, count: cellCount)
-            for m in 0..<cellCount {
-                rm[Int(mortonToNode[m])] = Int8(bitPattern: currentFrame[m])
+            if isMorton {
+                var rm = [Int8](repeating: 0, count: cellCount)
+                for m in 0..<cellCount {
+                    rm[Int(mortonToNode[m])] = Int8(bitPattern: currentFrame[m])
+                }
+                return rm
+            } else {
+                return currentFrame.map { Int8(bitPattern: $0) }
             }
-            return rm
         }
 
         /// Get downsampled frame for browser (majority vote + trophic boost)
@@ -417,10 +437,16 @@ public struct CarlosDelta {
 
             decodeFrame(idx)
 
-            // De-Morton to row-major for spatial downsampling
-            var rowMajor = [UInt8](repeating: 0, count: cellCount)
-            for m in 0..<cellCount {
-                rowMajor[Int(mortonToNode[m])] = currentFrame[m]
+            // De-Morton to row-major if v2 Morton file
+            let rowMajor: [UInt8]
+            if isMorton {
+                var rm = [UInt8](repeating: 0, count: cellCount)
+                for m in 0..<cellCount {
+                    rm[Int(mortonToNode[m])] = currentFrame[m]
+                }
+                rowMajor = rm
+            } else {
+                rowMajor = currentFrame
             }
 
             if !needsLOD {

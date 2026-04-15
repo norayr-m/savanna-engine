@@ -237,7 +237,16 @@ let asyncWriteQueue = DispatchQueue(label: "savanna.frame-writer", qos: .userIni
 let keyframeInterval = 60  // I-frame every 60 frames (15 sim-days)
 var deltaEncoder: CarlosDelta.Encoder? = nil
 if let dir = recordDir {
-    let deltaPath = "\(dir)/recording.savanna"
+    let deltaPath: String
+    if dir.hasSuffix(".savanna") {
+        // Direct filename: --record my_recording.savanna
+        deltaPath = dir
+        let parent = (deltaPath as NSString).deletingLastPathComponent
+        if !parent.isEmpty { try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true) }
+    } else {
+        // Directory: --record savanna_rec → savanna_rec/recording.savanna
+        deltaPath = "\(dir)/recording.savanna"
+    }
     deltaEncoder = try? CarlosDelta.Encoder(path: deltaPath, width: width, height: height,
                                              keyframeInterval: keyframeInterval)
     if deltaEncoder != nil {
@@ -398,7 +407,7 @@ for t in 0..<tickLimit {
 asyncWriteQueue.sync {}
 if let enc = deltaEncoder {
     enc.finalize()
-    let fileSize = (try? FileManager.default.attributesOfItem(atPath: "\(recordDir!)/recording.savanna")[.size] as? Int) ?? 0
+    let fileSize = (try? FileManager.default.attributesOfItem(atPath: enc.url.path)[.size] as? Int) ?? 0
     print("  Carlos Delta: \(enc.frameCount) frames (\(enc.iFrameCount) I + \(enc.pFrameCount) P), \(fileSize / 1_000_000) MB compressed")
 }
 
