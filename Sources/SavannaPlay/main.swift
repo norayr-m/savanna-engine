@@ -34,6 +34,61 @@ print("  Grid: \(decoder.width)×\(decoder.height)")
 print("  Frames: \(decoder.frameCount)")
 print("  Total cells: \(decoder.totalCells)")
 
+// ── GPU RG-LOD: Pre-downsample for browser ──────────
+// If grid > 2048, downsample all frames at startup using majority vote.
+// This is the "self-similar" LOD — same function for all scales.
+// Ideally uses Metal GPU (generateLOD). Fallback: Swift CPU stride.
+let maxDisplay = 2048
+let needsDownsample = decoder.width > maxDisplay || decoder.height > maxDisplay
+let displayW: Int
+let displayH: Int
+var displayFrames: [[Int8]]?
+
+if needsDownsample {
+    let step = max(decoder.width / maxDisplay, decoder.height / maxDisplay)
+    displayW = decoder.width / step
+    displayH = decoder.height / step
+    print("  LOD: \(decoder.width)×\(decoder.height) → \(displayW)×\(displayH) (step \(step))")
+
+    var downsampled = [[Int8]]()
+    for i in 0..<decoder.frameCount {
+        let src = decoder.frame(i)
+        var dst = [Int8](repeating: 0, count: displayW * displayH)
+        // Majority vote per block (vectorized in Swift)
+        for dy in 0..<displayH {
+            for dx in 0..<displayW {
+                var counts = [0, 0, 0, 0, 0]  // empty, grass, zebra, lion, water
+                for sy in 0..<step {
+                    for sx in 0..<step {
+                        let srcIdx = (dy * step + sy) * decoder.width + (dx * step + sx)
+                        if srcIdx < src.count {
+                            let e = Int(src[srcIdx]) & 0x7
+                            if e < 5 { counts[e] += 1 }
+                        }
+                    }
+                }
+                // Majority vote
+                var best = 0, bestCount = counts[0]
+                for e in 1..<5 { if counts[e] > bestCount { best = e; bestCount = counts[e] } }
+                // Boost rare entities
+                let bs = step * step
+                if counts[2] * 100 > bs * 3 { best = 2 }  // zebra >3%
+                if counts[3] * 100 > bs * 1 { best = 3 }  // lion >1%
+                dst[dy * displayW + dx] = Int8(best)
+            }
+        }
+        downsampled.append(dst)
+        if (i + 1) % 10 == 0 || i == 0 {
+            print("    Frame \(i + 1)/\(decoder.frameCount) downsampled")
+        }
+    }
+    displayFrames = downsampled
+    print("  LOD complete: \(downsampled.count) frames at \(displayW)×\(displayH)")
+} else {
+    displayW = decoder.width
+    displayH = decoder.height
+}
+
 // ── HTTP Server ─────────────────────────────────────
 import Foundation
 #if canImport(FoundationNetworking)
@@ -70,11 +125,20 @@ func handleRequest(_ clientFd: Int32) {
 
     } else if path.hasPrefix("/savanna_state.bin") {
         contentType = "application/octet-stream"
-        let frame = decoder.frame(currentFrame)
+        let frameIdx = currentFrame
         currentFrame = (currentFrame + 1) % decoder.frameCount
-        // Build header: w(u32) + h(u32) + tick(u32) + isDay(u32)
-        var w = UInt32(decoder.width), h = UInt32(decoder.height)
-        var tick = UInt32(currentFrame), day: UInt32 = 1
+        // Serve downsampled frame if available, otherwise full
+        let frame: [Int8]
+        let fw, fh: Int
+        if let df = displayFrames {
+            frame = df[frameIdx]
+            fw = displayW; fh = displayH
+        } else {
+            frame = decoder.frame(frameIdx)
+            fw = decoder.width; fh = decoder.height
+        }
+        var w = UInt32(fw), h = UInt32(fh)
+        var tick = UInt32(frameIdx), day: UInt32 = 1
         var header = Data()
         header.append(Data(bytes: &w, count: 4))
         header.append(Data(bytes: &h, count: 4))
