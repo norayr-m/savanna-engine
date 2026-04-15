@@ -8,44 +8,57 @@ constant int8_t ZEBRA = 2;
 constant int8_t LION  = 3;
 constant int8_t WATER = 4;
 
-// ── Time scale: 1 tick = 6 hours ──────────────────────────
-constant int MAX_AGE_ZEBRA   = 32000;
-constant int MAX_AGE_LION    = 18000;
-constant int MAX_AGE_GRASS   = 1460;
-constant int REPRO_AGE_ZEBRA      = 730;    // 6 months — fast recovery from trough
-constant int REPRO_AGE_LION       = 2920;   // 2 years
-constant int REPRO_COOLDOWN_ZEBRA = 365;    // 3 months between foals — fast recovery
-constant int REPRO_COOLDOWN_LION  = 2920;   // 2 years between litters
-constant int FOOD_ENERGY     = 150;   // very rich grass
-constant int KILL_ENERGY     = 8000;  // one kill fills pride (4 lionesses × 2000)
-constant int SPRINT_COST     = 5;     // tax sprint but don't bankrupt (was 10)
+// ══════════════════════════════════════════════════════════
+// DIGITAL SERENGETI — 1 hex = 100m, 1 tick = 6 hours
+// Serengeti: 300K zebras, 3K lions, 14,750 km²
+// ══════════════════════════════════════════════════════════
 
+constant int MAX_AGE_ZEBRA   = 32000;  // ~22 years
+constant int MAX_AGE_LION    = 18000;  // ~12 years
+constant int MAX_AGE_GRASS   = 1460;   // 1 year
+constant int REPRO_AGE_ZEBRA      = 730;    // 6 months
+constant int REPRO_COOLDOWN_ZEBRA = 365;    // 3 months between foals
+constant int FOOD_ENERGY     = 150;    // energy from mature grass
+constant int SPRINT_COST     = 5;      // lion sprint tax
+
+// ── Zebra metabolism (individual) ────────────────────────
 constant int BMR_ZEBRA_ACTIVE   = 4;
 constant int BMR_ZEBRA_RESTING  = 2;
 constant int BMR_ZEBRA_STRESSED = 7;
-constant int BMR_LION_ACTIVE    = 3;
+
+// ── Lion/Pride metabolism (Super-Individual: 1 cell = 1 pride) ──
+// Deep Think directive: pride as composite macro-agent
+constant int BMR_LION_ACTIVE    = 3;   // per-pride per-tick
 constant int BMR_LION_RESTING   = 1;
-// Gemini: no free lunch. Torpor = 1 per 8 ticks (0.125/tick effective).
-// Starving lion survives ~800 ticks (1.5 years), not forever.
-constant int BMR_LION_TORPOR    = 0;   // applied per-tick, but see fractional drain below
-constant int TORPOR_DRAIN_PERIOD = 128; // 1 energy per 128 ticks. Survives 3.5yr in torpor.
+constant int BMR_LION_TORPOR    = 0;
+constant int TORPOR_DRAIN_PERIOD = 128;
 
 constant int HUNGRY_THRESH   = 80;
 constant int STARVING_THRESH = 40;
-constant int SATIATION_THRESH = 8000;  // Type II. Pride full = don't hunt.
 
-// Birthday-window reproduction: breed on (age % cooldown == 0) tick
-// Birthday-window reproduction. Energy gate is per-species.
-constant int REPRO_ENERGY_ZEBRA = 120;  // zebra: lower threshold for faster recovery
-constant int REPRO_ENERGY_LION  = 200;  // lion: needs a recent kill (max energy = 255)
-constant int BIRTH_ENERGY_ZEBRA = 50;   // foal starts with 50, mother loses 80
-constant int BIRTH_ENERGY_LION  = 970;  // 8000/8 - thermo = exactly 8 cubs per kill
-constant int REPRO_THERMO_LOSS = 30;   // light per-cub cost — non-lethal breeding
+// ── Kill energy: one zebra feeds a pride ─────────────────
+constant int KILL_ENERGY     = 2000;   // realistic: one zebra = ~300kg meat
 
-// Birth radius: how far offspring can appear from parent (in neighbor hops)
-// Grass: effectively infinite (spontaneous growth handles this via grow_grass kernel)
-// Zebra: 1-2 hexes (foal stays near mother)
-// Lion: 1 hex only (cubs stay in the pride)
+// ── Pride Mitosis (Deep Think: no birthday window) ───────
+// When pride energy hits SPLIT_ENERGY → cell divides into two prides
+// Each daughter gets half. Natural territorial repulsion after.
+constant int SPLIT_ENERGY    = 6000;   // years of successful hunting
+
+// ── Zebra reproduction (birthday-window, unchanged) ──────
+constant int REPRO_ENERGY_ZEBRA = 120;
+constant int BIRTH_ENERGY_ZEBRA = 50;
+constant int REPRO_THERMO_LOSS  = 30;
+
+// ── Max energy (per-species) ─────────────────────────────
+constant int MAX_ENERGY_ZEBRA = 500;
+constant int MAX_ENERGY_LION  = 8000;  // pride caloric pool
+
+// ── Satiation ────────────────────────────────────────────
+constant int SATIATION_THRESH = 4000;  // pride stops hunting at half-full
+
+// ── River crossing ───────────────────────────────────────
+constant int RIVER_CROSSING_COST = 50;    // energy to swim
+constant int RIVER_DEATH_CHANCE  = 5;     // % chance of croc/drowning
 
 // ── Sensing ranges ────────────────────────────────────────
 // Hearing: omnidirectional, radius 1 (6 neighbors)
@@ -70,8 +83,7 @@ constant float WATER_DRINK_THRESH = 0.001;  // very faint water scent = hydrated
 constant int   THIRST_ACCEL_PERIOD = 40;    // minimal: 1 energy per 40 ticks when fully dry
 constant float WATER_GRASS_BOOST = 3.0;     // grass growth multiplier near water
 
-constant int MAX_ENERGY_ZEBRA = 500;
-constant int MAX_ENERGY_LION  = 8000;  // pride of 4 lionesses
+// MAX_ENERGY_ZEBRA and MAX_ENERGY_LION defined in Serengeti constants above
 inline int16_t clamp_z(int x) { return int16_t(clamp(x, 0, MAX_ENERGY_ZEBRA)); }
 inline int16_t clamp_l(int x) { return int16_t(clamp(x, 0, MAX_ENERGY_LION)); }
 inline int16_t clamp16(int x) { return int16_t(clamp(x, 0, 8000)); }  // fallback for grass
@@ -85,40 +97,49 @@ inline int16_t clamp16(int x) { return int16_t(clamp(x, 0, 8000)); }  // fallbac
 constant int dir_x[6] = { 9,  0, -9, -9,  0,  9};
 constant int dir_y[6] = {-5,-10, -5,  5, 10,  5};
 
-// ── Scent diffusion kernel ────────────────────────────────
-// Runs BEFORE the tick phase. Updates scent fields by diffusion + emission.
-// Three scent buffers: zebra_scent (lions track), grass_scent (zebras track), lion_scent (zebras flee)
+// ── Scent diffusion kernel with Serengeti wind ──────────
+// Wind-biased diffusion: scent drifts downwind.
+// Real seasonal pattern: NE monsoon (Nov-Mar), SE trades (May-Oct).
+// wind_dir 0-5 maps to hex directions. Rotates with seasons.
+constant float WIND_STRENGTH = 0.6;  // 0=isotropic, 1=fully directional
 
 kernel void diffuse_scent(
-    device float*         scent      [[ buffer(0) ]],  // scent field to update
-    device const float*   scent_prev [[ buffer(1) ]],  // previous tick's scent (read-only copy)
+    device float*         scent      [[ buffer(0) ]],
+    device const float*   scent_prev [[ buffer(1) ]],
     device const int8_t*  entity     [[ buffer(2) ]],
     device const int32_t* neighbors  [[ buffer(3) ]],
-    constant int8_t&      source_type[[ buffer(4) ]],  // which entity emits this scent
+    constant int8_t&      source_type[[ buffer(4) ]],
     constant float&       emit_str   [[ buffer(5) ]],
     constant uint32_t&    node_count [[ buffer(6) ]],
+    constant uint32_t&    wind_dir   [[ buffer(7) ]],  // Serengeti wind 0-5
     uint                  gid        [[ thread_position_in_grid ]]
 ) {
     if (gid >= node_count) return;
 
-    // Decay rates: water = permanent landscape, zebra = herd trail, others = standard
-    // Zebra herds of thousands create massive scent fields — lions can track from far
-    float decay = SCENT_DECAY;  // 0.95 default
-    if (source_type == WATER) decay = 0.995;  // permanent: ~200 hex range
-    if (source_type == ZEBRA) decay = 0.98;   // herd trail: ~50 hex range
+    float decay = SCENT_DECAY;
+    if (source_type == WATER) decay = 0.995;
+    if (source_type == ZEBRA) decay = 0.98;
     float s = scent_prev[gid] * decay;
 
-    // Spread from neighbors (average of neighbor scents)
-    float nb_sum = 0; int nb_count = 0;
+    // Wind-biased neighbor spread
+    // Scent blows downwind: upwind neighbor's scent reaches us more
+    int upwind = (int(wind_dir) + 3) % 6;
+    float nb_weighted = 0; float weight_total = 0;
     for (int d = 0; d < 6; d++) {
         int32_t nb = neighbors[gid * 6 + d];
-        if (nb >= 0) { nb_sum += scent_prev[nb]; nb_count++; }
+        if (nb < 0) continue;
+        // Angular distance from upwind direction (0=upwind, 3=downwind)
+        int angle = abs(d - upwind);
+        if (angle > 3) angle = 6 - angle;
+        // Upwind neighbor contributes most (w=1+WIND), downwind least (w=1-WIND*0.5)
+        float w = 1.0 + WIND_STRENGTH * (1.0 - float(angle) / 3.0);
+        nb_weighted += scent_prev[nb] * w;
+        weight_total += w;
     }
-    if (nb_count > 0) {
-        s = max(s, nb_sum / float(nb_count) * SCENT_SPREAD);
+    if (weight_total > 0) {
+        s = max(s, nb_weighted / weight_total * SCENT_SPREAD);
     }
 
-    // Emit from source entities
     if (entity[gid] == source_type) {
         s = max(s, emit_str);
     }
@@ -224,37 +245,23 @@ kernel void tick_phase(
         }
     }
 
-    // ── REPRODUCTION (Birthday-window gate) ─────────────────
-    // Breed on (age % cooldown == 0) when energy >= REPRO_ENERGY.
-    // Birthday spacing + age pyramid = births spread across time.
-    int repro_age = (my_entity == ZEBRA) ? REPRO_AGE_ZEBRA : REPRO_AGE_LION;
-    int repro_cd  = (my_entity == ZEBRA) ? REPRO_COOLDOWN_ZEBRA : REPRO_COOLDOWN_LION;
-    bool breed_window = (my_age > repro_age) && (int(my_age) % repro_cd == 0);
-    int repro_e = (my_entity == ZEBRA) ? REPRO_ENERGY_ZEBRA : REPRO_ENERGY_LION;
-    if (breed_window && my_energy >= repro_e) {
+    // ── REPRODUCTION ──────────────────────────────────────────
+    uint dir_off = (uint(node) * 2654435761u ^ tick) % 6u;
 
-        // Litter size: zebra=1, lion=2-3 (hash-determined)
-        int litter = 1;  // zebra: 1 foal
-        if (my_entity == LION) litter = 8;  // pride: 4 females × 2 cubs
-
-        uint dir_off = (uint(node) * 2654435761u ^ tick) % 6u;
-        int born = 0;
-
-        int be = (my_entity == ZEBRA) ? BIRTH_ENERGY_ZEBRA : BIRTH_ENERGY_LION;
-        int birth_cost = be + REPRO_THERMO_LOSS;
-        for (int cub = 0; cub < litter && my_energy >= birth_cost; cub++) {
+    if (my_entity == ZEBRA) {
+        // ZEBRA: Birthday-window reproduction (unchanged)
+        bool breed_window = (my_age > REPRO_AGE_ZEBRA) && (int(my_age) % REPRO_COOLDOWN_ZEBRA == 0);
+        if (breed_window && my_energy >= (BIRTH_ENERGY_ZEBRA + REPRO_THERMO_LOSS)) {
             int32_t birth_cell = -1;
-
-            // Radius 1: check immediate neighbors
+            // Radius 1
             for (int dd = 0; dd < 6; dd++) {
-                int32_t nb = neighbors[node * 6 + int((dd + dir_off + cub) % 6u)];
+                int32_t nb = neighbors[node * 6 + int((dd + dir_off) % 6u)];
                 if (nb >= 0 && (entity[nb] == EMPTY || entity[nb] == GRASS)) {
                     birth_cell = nb; break;
                 }
             }
-
-            // Radius 2: zebras can place foal further
-            if (birth_cell < 0 && my_entity == ZEBRA) {
+            // Radius 2
+            if (birth_cell < 0) {
                 for (int dd = 0; dd < 6; dd++) {
                     int32_t nb1 = neighbors[node * 6 + int((dd + dir_off) % 6u)];
                     if (nb1 < 0) continue;
@@ -267,24 +274,44 @@ kernel void tick_phase(
                     if (birth_cell >= 0) break;
                 }
             }
-
-            // Halo guard: cannot birth into halo cells
-            if (birth_cell >= 0 && uint32_t(birth_cell) >= main_tile_n) birth_cell = -1;
-            if (birth_cell >= 0) {
-                if (entity[birth_cell] == GRASS) gauge[birth_cell] = -30; // trample
-                entity[birth_cell] = my_entity;
-                energy[birth_cell] = int16_t(be);
+            if (birth_cell >= 0 && uint32_t(birth_cell) < main_tile_n) {
+                entity[birth_cell] = ZEBRA;
+                energy[birth_cell] = int16_t(BIRTH_ENERGY_ZEBRA);
                 ternary[birth_cell] = 1;
-                // Cubs get spread ages: uniform 0..repro_age → staggered maturity
-                {
-                    uint ch = uint(birth_cell) * 2654435761u ^ tick * 374761393u ^ uint(cub) * 668265263u;
-                    ch ^= ch >> 16; ch *= 2246822519u; ch ^= ch >> 13;
-                    gauge[birth_cell] = int16_t(ch % uint(repro_age));
-                }
-                orientation[birth_cell] = int8_t((int(my_facing) + cub + 1) % 6);
-                my_energy -= int16_t(be + REPRO_THERMO_LOSS);
+                gauge[birth_cell] = 0;
+                orientation[birth_cell] = int8_t((int(my_facing) + 1) % 6);
+                my_energy -= int16_t(BIRTH_ENERGY_ZEBRA + REPRO_THERMO_LOSS);
                 energy[node] = int16_t(clamp(int(my_energy), 0, my_max_e));
-                born++;
+            }
+        }
+    } else if (my_entity == LION) {
+        // LION PRIDE: Mitosis (Deep Think directive)
+        // When energy >= SPLIT_ENERGY, pride divides into two daughter prides.
+        // Each gets half energy. Natural territorial repulsion after split.
+        // No birthday window. No litter count. Thermodynamic reproduction.
+        if (my_energy >= SPLIT_ENERGY) {
+            int32_t split_cell = -1;
+            // Find adjacent empty/grass cell for daughter pride
+            for (int dd = 0; dd < 6; dd++) {
+                int32_t nb = neighbors[node * 6 + int((dd + dir_off) % 6u)];
+                if (nb >= 0 && (entity[nb] == EMPTY || entity[nb] == GRASS)
+                    && uint32_t(nb) < main_tile_n) {
+                    split_cell = nb; break;
+                }
+            }
+            if (split_cell >= 0) {
+                int16_t split_e = int16_t(my_energy / 2);
+                // Daughter pride
+                entity[split_cell] = LION;
+                energy[split_cell] = split_e;
+                ternary[split_cell] = 1;
+                gauge[split_cell] = 0;  // new pride, age 0
+                // Daughter faces AWAY (territorial repulsion from birth)
+                int8_t away_dir = int8_t((int(my_facing) + 3) % 6);
+                orientation[split_cell] = away_dir;
+                // Mother pride keeps half
+                my_energy = split_e;
+                energy[node] = split_e;
             }
         }
     }
@@ -598,26 +625,11 @@ kernel void tick_phase(
                         target = best_zt; new_facing = best_zd;
                     }
                 }
-                // 2. PRIDE DYNAMICS: cubs stay, adults attract up to 8, then split
-                bool is_cub = (my_age < REPRO_AGE_LION);
+                // 2. PRIDE TERRITORIAL REPULSION (Super-Individual: 1 cell = 1 pride)
+                // Prides repel each other — claim separate hunting grounds
                 if (target < 0 && hear_lion > 0) {
-                    if (hear_lion < 8 || is_cub) {
-                        // ATTRACT: cubs always stick, adults until pride=8
-                        for (int dd = 0; dd < 6; dd++) {
-                            int32_t nb = neighbors[node * 6 + dd];
-                            if (nb >= 0 && entity[nb] == LION) {
-                                for (int sd = 0; sd < 6; sd++) {
-                                    int8_t td = int8_t((dd + sd) % 6);
-                                    int32_t tnb = neighbors[node * 6 + int(td)];
-                                    if (tnb >= 0 && (entity[tnb] == EMPTY || entity[tnb] == GRASS)) {
-                                        target = tnb; new_facing = td; break;
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                    } else if (!is_cub) {
-                        // SPLIT: pride > 8 adults → young adults leave (opposite of nearest lion)
+                    {
+                        // REPEL: move away from nearest pride
                         for (int dd = 0; dd < 6; dd++) {
                             int32_t nb = neighbors[node * 6 + dd];
                             if (nb >= 0 && entity[nb] == LION) {
@@ -1056,4 +1068,91 @@ kernel void census_reduce(
     if (e == LION)  atomic_fetch_add_explicit(lion_count,  1, memory_order_relaxed);
     if (e == ZEBRA || e == LION)
         atomic_fetch_add_explicit(energy_sum, uint(energy[gid]), memory_order_relaxed);
+}
+
+// ══════════════════════════════════════════════════════════
+// CARLOS DELTA — GPU Decode Kernels
+// Phase 1: CPU decompresses zlib, GPU does XOR + de-Morton + LOD
+// Phase 2: sparse scatter format, zero CPU
+// ══════════════════════════════════════════════════════════
+
+// XOR a decompressed delta buffer into the frame buffer (in-place)
+kernel void delta_xor(
+    device uint8_t*       frame       [[ buffer(0) ]],  // current frame (modified in-place)
+    device const uint8_t* delta       [[ buffer(1) ]],  // decompressed XOR delta
+    constant uint32_t&    count       [[ buffer(2) ]],
+    uint                  gid         [[ thread_position_in_grid ]]
+) {
+    if (gid >= count) return;
+    frame[gid] = frame[gid] ^ delta[gid];
+}
+
+// De-Morton: scatter from Morton-rank order to row-major order
+kernel void delta_demorton(
+    device const uint8_t*  morton_frame  [[ buffer(0) ]],  // Morton-ordered frame
+    device uint8_t*        rowmajor_out  [[ buffer(1) ]],  // row-major output
+    device const int32_t*  morton_to_node [[ buffer(2) ]], // mortonToNode[rank] = rowmajor index
+    constant uint32_t&     count         [[ buffer(3) ]],
+    uint                   gid           [[ thread_position_in_grid ]]
+) {
+    if (gid >= count) return;
+    rowmajor_out[morton_to_node[gid]] = morton_frame[gid];
+}
+
+// LOD downsample: majority vote + trophic boost (replaces CPU displayFrame)
+// Input: row-major entity buffer (full res)
+// Output: downsampled int8 entity buffer (display res)
+kernel void delta_lod_downsample(
+    device const uint8_t*  src         [[ buffer(0) ]],  // full-res row-major
+    device int8_t*         dst         [[ buffer(1) ]],  // downsampled output
+    constant uint32_t&     src_w       [[ buffer(2) ]],
+    constant uint32_t&     dst_w       [[ buffer(3) ]],
+    constant uint32_t&     dst_h       [[ buffer(4) ]],
+    constant uint32_t&     step        [[ buffer(5) ]],
+    uint                   gid         [[ thread_position_in_grid ]]
+) {
+    if (gid >= dst_w * dst_h) return;
+
+    uint dx = gid % dst_w;
+    uint dy = gid / dst_w;
+    uint s = step;
+    uint bs = s * s;
+
+    // Count entities in block
+    uint counts[5] = {0, 0, 0, 0, 0};
+    for (uint sy = 0; sy < s; sy++) {
+        uint rowOff = (dy * s + sy) * src_w + dx * s;
+        for (uint sx = 0; sx < s; sx++) {
+            uint e = src[rowOff + sx] & 0x7;
+            if (e < 5) counts[e]++;
+        }
+    }
+
+    // Majority vote
+    int8_t best = 0;
+    uint bestC = counts[0];
+    if (counts[1] > bestC) { best = 1; bestC = counts[1]; }
+    if (counts[2] > bestC) { best = 2; bestC = counts[2]; }
+    if (counts[3] > bestC) { best = 3; bestC = counts[3]; }
+    if (counts[4] > bestC) { best = 4; }
+
+    // Trophic boost: rare predators stay visible
+    if (counts[2] * 100 > bs * 3) best = 2;  // zebra >3%
+    if (counts[3] * 100 > bs * 1) best = 3;  // lion >1%
+
+    dst[gid] = best;
+}
+
+// Phase 2: sparse scatter — apply non-zero delta entries
+// P-frame format: array of (uint32 index, uint8 value) packed as 5-byte entries
+kernel void delta_sparse_scatter(
+    device uint8_t*        frame        [[ buffer(0) ]],  // frame buffer (XOR in-place)
+    device const uint32_t* indices      [[ buffer(1) ]],  // sparse indices
+    device const uint8_t*  values       [[ buffer(2) ]],  // sparse values
+    constant uint32_t&     count        [[ buffer(3) ]],  // number of entries
+    uint                   gid          [[ thread_position_in_grid ]]
+) {
+    if (gid >= count) return;
+    uint idx = indices[gid];
+    frame[idx] = frame[idx] ^ values[gid];
 }

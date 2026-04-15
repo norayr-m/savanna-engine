@@ -215,16 +215,6 @@ if let rec = recorder, !benchMode && recordDir == nil {
     print("  Recorder: \(rec.capacity) frames (\(rec.capacity * frameBytes / 1_000_000) MB)")
 }
 
-// ── Frame recording to disk ──────────────────────────────
-if let dir = recordDir {
-    let fm = FileManager.default
-    try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
-    // Write meta.json
-    let meta = "{\"width\":\(width),\"height\":\(height),\"frame_count\":0,\"seed\":42}"
-    try? meta.write(toFile: "\(dir)/meta.json", atomically: true, encoding: .utf8)
-    print("  Recording to: \(dir)/")
-}
-
 if checkpointInterval > 0 {
     print("  Checkpointing every \(checkpointInterval) ticks")
 }
@@ -245,12 +235,15 @@ if let dir = recordDir {
         if !parent.isEmpty { try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true) }
     } else {
         // Directory: --record savanna_rec → savanna_rec/recording.savanna
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         deltaPath = "\(dir)/recording.savanna"
     }
+    let encFormat: CarlosDelta.Format = args.contains("--zlib") ? .zlib : .sparse
     deltaEncoder = try? CarlosDelta.Encoder(path: deltaPath, width: width, height: height,
-                                             keyframeInterval: keyframeInterval)
+                                             keyframeInterval: keyframeInterval, format: encFormat)
     if deltaEncoder != nil {
         print("  Carlos Delta encoder: \(deltaPath)")
+        print("  Format: \(encFormat == .sparse ? "sparse scatter (GPU-native)" : "zlib (CPU)")")
         print("  I-frame interval: every \(keyframeInterval) frames")
     }
 }
@@ -296,19 +289,6 @@ for t in 0..<tickLimit {
         let entities = engine.readEntities()  // Morton order — no de-Morton, straight to disk
         asyncWriteQueue.async {
             enc.addFrame(entities)
-        }
-    } else if let dir = recordDir {
-        // Fallback: raw frame write (row-major for compatibility)
-        let entities = engine.readEntitiesRowMajor()
-        let framePath = "\(dir)/frame_\(String(format: "%06d", t)).bin"
-        let frameNum = t + 1
-        asyncWriteQueue.async {
-            entities.withUnsafeBytes { ptr in
-                let data = Data(bytes: ptr.baseAddress!, count: ptr.count)
-                try? data.write(to: URL(fileURLWithPath: framePath))
-            }
-            let meta = "{\"width\":\(width),\"height\":\(height),\"frame_count\":\(frameNum),\"seed\":42}"
-            try? meta.write(toFile: "\(dir)/meta.json", atomically: true, encoding: .utf8)
         }
     }
 
@@ -408,7 +388,13 @@ asyncWriteQueue.sync {}
 if let enc = deltaEncoder {
     enc.finalize()
     let fileSize = (try? FileManager.default.attributesOfItem(atPath: enc.url.path)[.size] as? Int) ?? 0
-    print("  Carlos Delta: \(enc.frameCount) frames (\(enc.iFrameCount) I + \(enc.pFrameCount) P), \(fileSize / 1_000_000) MB compressed")
+    let avgEntries = enc.pFrameCount > 0 ? enc.totalSparseEntries / UInt64(enc.pFrameCount) : 0
+    let sparsePct = enc.pFrameCount > 0 && totalCellCount > 0 ?
+        String(format: "%.1f", Double(avgEntries) / Double(totalCellCount) * 100) : "0"
+    print("  Carlos Delta: \(enc.frameCount) frames (\(enc.iFrameCount) I + \(enc.pFrameCount) P), \(fileSize / 1_000_000) MB")
+    if enc.totalSparseEntries > 0 {
+        print("  Sparse: \(avgEntries) avg entries/frame (\(sparsePct)% change rate)")
+    }
 }
 
 // ── Summary ──────────────────────────────────────────────

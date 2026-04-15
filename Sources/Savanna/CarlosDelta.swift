@@ -62,31 +62,42 @@ public struct CarlosDelta {
 
     // MARK: - Encoder
 
+    /// Frame encoding format
+    public enum Format: UInt32 {
+        case zlib = 0     // zlib compressed (CPU decode)
+        case sparse = 1   // sparse scatter (GPU decode, zero CPU)
+    }
+
     /// Encodes frames incrementally. Call `addFrame` for each tick, then `finalize`.
-    /// I-frames (keyframes) every `keyframeInterval` frames. P-frames (XOR deltas) between.
+    /// I-frames (keyframes) every `keyframeInterval` frames. P-frames between.
+    /// Format .zlib: I=zlib(full), P=zlib(XOR delta) — small files, CPU decode
+    /// Format .sparse: I=zlib(full), P=sparse(index,value) — GPU-native decode
     public final class Encoder {
         public let url: URL
         let width: UInt32
         let height: UInt32
         let totalCells: UInt64
         let keyframeInterval: UInt32
+        let format: Format
         var handle: FileHandle
         var prevFrame: [UInt8]?
         public var frameCount: UInt32 = 0
         public var iFrameCount: UInt32 = 0
         public var pFrameCount: UInt32 = 0
+        public var totalSparseEntries: UInt64 = 0
 
-        /// - Parameter keyframeInterval: Insert I-frame every N frames. 0 = only frame 0 is I-frame.
-        ///   Default 60 (1 second at 60fps, or 15 sim-days at 4 ticks/day).
+        /// - Parameter format: .zlib (CPU, small) or .sparse (GPU, fast)
         public init(path: String, width: Int, height: Int,
-                    totalCells: UInt64? = nil, keyframeInterval: Int = 60) throws {
+                    totalCells: UInt64? = nil, keyframeInterval: Int = 60,
+                    format: Format = .sparse) throws {
             self.url = URL(fileURLWithPath: path)
             self.width = UInt32(width)
             self.height = UInt32(height)
             self.totalCells = totalCells ?? UInt64(width * height)
             self.keyframeInterval = UInt32(keyframeInterval)
+            self.format = format
 
-            // Write header (28 bytes — will update frame count at finalize)
+            // Write header (32 bytes — will update frame count at finalize)
             FileManager.default.createFile(atPath: path, contents: nil)
             self.handle = try FileHandle(forWritingTo: url)
 
@@ -96,43 +107,65 @@ public struct CarlosDelta {
             var nf: UInt32 = 0  // placeholder
             var tc = self.totalCells
             var kfi = self.keyframeInterval
+            var fmt = format.rawValue
             header.append(Data(bytes: &w, count: 4))
             header.append(Data(bytes: &h, count: 4))
             header.append(Data(bytes: &nf, count: 4))
             header.append(Data(bytes: &tc, count: 8))
             header.append(Data(bytes: &kfi, count: 4))
+            header.append(Data(bytes: &fmt, count: 4))
             handle.write(header)
         }
 
-        /// Add a frame. I-frame if frameCount % keyframeInterval == 0, else P-frame (XOR delta).
+        /// Add a frame. I-frame if frameCount % keyframeInterval == 0, else P-frame.
         public func addFrame(_ entities: [Int8]) {
             let bytes = entities.map { UInt8(bitPattern: $0) }
             let isKeyframe = prevFrame == nil ||
                 (keyframeInterval > 0 && frameCount % keyframeInterval == 0)
-            let toCompress: [UInt8]
 
             if isKeyframe {
-                // I-frame: full frame
-                toCompress = bytes
+                // I-frame: always zlib compressed (rare, ~2% of frames)
+                let compressed = Self.compress(bytes)
+                var size = UInt32(compressed.count)
+                handle.write(Data(bytes: &size, count: 4))
+                handle.write(Data(compressed))
                 iFrameCount += 1
+            } else if format == .sparse {
+                // P-frame sparse: extract non-zero XOR entries
+                let prev = prevFrame!
+                var indices = [UInt32]()
+                var values = [UInt8]()
+                for i in 0..<bytes.count {
+                    let xor = bytes[i] ^ prev[i]
+                    if xor != 0 {
+                        indices.append(UInt32(i))
+                        values.append(xor)
+                    }
+                }
+                // Write: total_size (u32) + count (u32) + indices + values
+                let count = UInt32(indices.count)
+                let dataSize = 4 + indices.count * 4 + values.count  // count + indices + values
+                var totalSize = UInt32(dataSize)
+                handle.write(Data(bytes: &totalSize, count: 4))
+                var cnt = count
+                handle.write(Data(bytes: &cnt, count: 4))
+                indices.withUnsafeBytes { handle.write(Data($0)) }
+                values.withUnsafeBytes { handle.write(Data($0)) }
+                totalSparseEntries += UInt64(count)
+                pFrameCount += 1
             } else {
-                // P-frame: XOR delta
+                // P-frame zlib: XOR delta compressed
                 let prev = prevFrame!
                 var delta = [UInt8](repeating: 0, count: bytes.count)
                 for i in 0..<bytes.count {
                     delta[i] = bytes[i] ^ prev[i]
                 }
-                toCompress = delta
+                let compressed = Self.compress(delta)
+                var size = UInt32(compressed.count)
+                handle.write(Data(bytes: &size, count: 4))
+                handle.write(Data(compressed))
                 pFrameCount += 1
             }
-
-            // Compress with zlib
-            let compressed = Self.compress(toCompress)
-
-            // Write: size (u32) + compressed data
-            var size = UInt32(compressed.count)
-            handle.write(Data(bytes: &size, count: 4))
-            handle.write(Data(compressed))
 
             prevFrame = bytes
             frameCount += 1
@@ -282,7 +315,8 @@ public struct CarlosDelta {
         public let frameCount: Int
         public let totalCells: UInt64
         public let keyframeInterval: Int
-        public let isMorton: Bool  // v2 = Morton on disk, v1 = row-major
+        public let isMorton: Bool  // v2+ = Morton on disk, v1 = row-major
+        public let format: Format
         let data: Data
         var frameOffsets: [Int]  // byte offset of each compressed frame
         var currentFrame: [UInt8]  // last decoded full-res frame
@@ -321,17 +355,23 @@ public struct CarlosDelta {
             self.cellCount = w * h
             self.currentFrame = [UInt8](repeating: 0, count: cellCount)
 
-            // v2 header: keyframe interval at offset 24 (28-byte header)
-            // v1: row-major on disk, no keyframe interval
-            // v2: Morton on disk, has keyframe interval (1..1000)
+            // v1/v2/v3 header detection
             let kfiCandidate = Int(data[24..<28].withUnsafeBytes { $0.load(as: UInt32.self) })
             if kfiCandidate > 0 && kfiCandidate <= 1000 {
                 self.keyframeInterval = kfiCandidate
                 self.isMorton = true
-                offset = 28
+                if data.count >= 32 {
+                    let fmtRaw = data[28..<32].withUnsafeBytes { $0.load(as: UInt32.self) }
+                    self.format = Format(rawValue: fmtRaw) ?? .zlib
+                    offset = 32
+                } else {
+                    self.format = .zlib
+                    offset = 28
+                }
             } else {
                 self.keyframeInterval = 0
-                self.isMorton = false  // v1: row-major, no de-Morton needed
+                self.isMorton = false
+                self.format = .zlib
                 offset = 24
             }
 
@@ -395,19 +435,34 @@ public struct CarlosDelta {
                 currentIndex = kf
             }
 
-            // Decode forward (P-frames only — skip any intermediate I-frames)
+            // Decode forward
             while currentIndex < index {
                 let next = currentIndex + 1
                 let off = frameOffsets[next]
-                let sz = Int(data[off..<off+4].withUnsafeBytes { $0.load(as: UInt32.self) })
-                let compressed = [UInt8](data[off+4..<off+4+sz])
-                let decompressed = Decoder.decompress(compressed, expectedSize: cellCount)
 
                 if isKeyframe(next) {
-                    // I-frame: replace entirely
-                    currentFrame = decompressed
+                    // I-frame: zlib decompress, replace entirely
+                    let sz = Int(data[off..<off+4].withUnsafeBytes { $0.load(as: UInt32.self) })
+                    let compressed = [UInt8](data[off+4..<off+4+sz])
+                    currentFrame = Decoder.decompress(compressed, expectedSize: cellCount)
+                } else if format == .sparse {
+                    // P-frame SPARSE: read (index, value) pairs, scatter XOR
+                    let totalSize = Int(data[off..<off+4].withUnsafeBytes { $0.load(as: UInt32.self) })
+                    let count = Int(data[off+4..<off+8].withUnsafeBytes { $0.load(as: UInt32.self) })
+                    _ = totalSize
+                    let idxStart = off + 8
+                    let valStart = idxStart + count * 4
+                    for i in 0..<count {
+                        let idx = Int(data[idxStart + i * 4..<idxStart + i * 4 + 4]
+                            .withUnsafeBytes { $0.load(as: UInt32.self) })
+                        let val = data[valStart + i]
+                        currentFrame[idx] = currentFrame[idx] ^ val
+                    }
                 } else {
-                    // P-frame: XOR delta
+                    // P-frame ZLIB: decompress XOR delta
+                    let sz = Int(data[off..<off+4].withUnsafeBytes { $0.load(as: UInt32.self) })
+                    let compressed = [UInt8](data[off+4..<off+4+sz])
+                    let decompressed = Decoder.decompress(compressed, expectedSize: cellCount)
                     for j in 0..<cellCount { currentFrame[j] = currentFrame[j] ^ decompressed[j] }
                 }
                 currentIndex = next

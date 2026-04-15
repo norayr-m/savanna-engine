@@ -21,24 +21,71 @@ let port: UInt16 = {
     return 8800
 }()
 
-// ── Streaming Decoder (JIT — no preload, no thumbnails) ──
-// Reads .savanna file, decodes frames on demand, downsamples on the fly.
-// Only keeps ONE frame in RAM. Instant startup. Scales to any size.
+// ── Decoder: GPU (Metal) or CPU fallback ──
+import Metal
+
 print("Loading \(filePath)...")
-let decoder: CarlosDelta.StreamingDecoder
-do {
-    decoder = try CarlosDelta.StreamingDecoder(path: filePath)
-} catch {
-    print("Error: \(error)")
-    exit(1)
+
+// Try GPU decoder first, fall back to CPU
+var gpuDec: GPUDecoder? = nil
+var cpuDec: CarlosDelta.StreamingDecoder? = nil
+
+let decWidth: Int, decHeight: Int, decFrameCount: Int, decTotalCells: UInt64
+let decDisplayW: Int, decDisplayH: Int, decNeedsLOD: Bool, decStep: Int
+let decKeyframeInterval: Int
+
+if let gpu = try? GPUDecoder(path: filePath) {
+    gpuDec = gpu
+    decWidth = gpu.width; decHeight = gpu.height
+    decFrameCount = gpu.frameCount; decTotalCells = gpu.totalCells
+    decDisplayW = gpu.displayW; decDisplayH = gpu.displayH
+    decNeedsLOD = gpu.needsLOD; decStep = gpu.step
+    decKeyframeInterval = gpu.keyframeInterval
+    print("  GPU: \(gpu.device.name)")
+} else {
+    let cpu = try! CarlosDelta.StreamingDecoder(path: filePath)
+    cpuDec = cpu
+    decWidth = cpu.width; decHeight = cpu.height
+    decFrameCount = cpu.frameCount; decTotalCells = cpu.totalCells
+    decDisplayW = cpu.displayW; decDisplayH = cpu.displayH
+    decNeedsLOD = cpu.needsLOD; decStep = cpu.step
+    decKeyframeInterval = cpu.keyframeInterval
+    print("  Mode: CPU (no Metal)")
 }
-print("  Grid: \(decoder.width)×\(decoder.height)")
-print("  Frames: \(decoder.frameCount)")
-print("  Total cells: \(decoder.totalCells)")
-if decoder.needsLOD {
-    print("  LOD: \(decoder.width)×\(decoder.height) → \(decoder.displayW)×\(decoder.displayH) (step \(decoder.step), JIT)")
+
+print("  Grid: \(decWidth)×\(decHeight)")
+print("  Frames: \(decFrameCount)")
+print("  Total cells: \(decTotalCells)")
+if decKeyframeInterval > 0 {
+    let iFrames = (decFrameCount + decKeyframeInterval - 1) / decKeyframeInterval
+    let pFrames = decFrameCount - iFrames
+    print("  I/P frames: \(iFrames) I + \(pFrames) P (interval \(decKeyframeInterval))")
+    print("  Max seek distance: \(decKeyframeInterval) frames")
 }
-print("  Mode: streaming (JIT decode + downsample per request)")
+if decNeedsLOD {
+    print("  LOD: \(decWidth)×\(decHeight) → \(decDisplayW)×\(decDisplayH) (step \(decStep))")
+}
+
+/// Unified frame access — GPU or CPU
+func getDisplayFrame(_ index: Int) -> [Int8] {
+    if let gpu = gpuDec { return gpu.displayFrame(index) }
+    return cpuDec!.displayFrame(index)
+}
+func getFrame(_ index: Int) -> [Int8] {
+    if let gpu = gpuDec { return gpu.displayFrame(index) }
+    return cpuDec!.frame(index)
+}
+
+// Pre-warm (CPU path only — GPU is fast enough without cache)
+if cpuDec != nil && decFrameCount > 0 {
+    print("  Warming CPU cache: \(decFrameCount) frames...", terminator: "")
+    fflush(stdout)
+    let t0 = CFAbsoluteTimeGetCurrent()
+    for i in 0..<decFrameCount { _ = getDisplayFrame(i) }
+    let t1 = CFAbsoluteTimeGetCurrent()
+    print(" \(String(format: "%.1f", t1 - t0))s (\(String(format: "%.0f", (t1 - t0) / Double(decFrameCount) * 1000))ms/frame)")
+}
+print("  Mode: \(gpuDec != nil ? "GPU (Metal)" : "CPU (cached)")")
 
 // ── HTTP Server ─────────────────────────────────────
 import Foundation
@@ -70,18 +117,16 @@ func handleRequest(_ clientFd: Int32) {
     if path == "/info" || path == "/info?" {
         contentType = "application/json"
         let info = """
-        {"width":\(decoder.width),"height":\(decoder.height),"frame_count":\(decoder.frameCount),"cells":\(decoder.width * decoder.height),"total_cells":\(decoder.totalCells)}
+        {"width":\(decWidth),"height":\(decHeight),"frame_count":\(decFrameCount),"cells":\(decWidth * decHeight),"total_cells":\(decTotalCells),"gpu":\(gpuDec != nil)}
         """
         responseBody = info.data(using: .utf8)!
 
     } else if path.hasPrefix("/savanna_state.bin") {
         contentType = "application/octet-stream"
         let frameIdx = currentFrame
-        currentFrame = (currentFrame + 1) % decoder.frameCount
-        // JIT: decode + downsample on demand (one frame in RAM)
-        let frame = decoder.displayFrame(frameIdx)
-        let fw = decoder.displayW, fh = decoder.displayH
-        var w = UInt32(fw), h = UInt32(fh)
+        currentFrame = (currentFrame + 1) % decFrameCount
+        let frame = getDisplayFrame(frameIdx)
+        var w = UInt32(decDisplayW), h = UInt32(decDisplayH)
         var tick = UInt32(frameIdx), day: UInt32 = 1
         var header = Data()
         header.append(Data(bytes: &w, count: 4))
@@ -93,13 +138,13 @@ func handleRequest(_ clientFd: Int32) {
 
     } else if path == "/savanna_telemetry.json" {
         contentType = "application/json"
-        let frame = decoder.frame(max(0, currentFrame - 1))
+        let frame = getFrame(max(0, currentFrame - 1))
         var grass = 0, zebra = 0, lion = 0
         for e in frame {
             if e == 1 { grass += 1 } else if e == 2 { zebra += 1 } else if e == 3 { lion += 1 }
         }
         let telemetry = """
-        {"tick":\(currentFrame),"day":\(currentFrame/4),"year":\(String(format:"%.2f", Double(currentFrame)/1460.0)),"ms":0,"tps":0,"speed":1,"grass":\(grass),"zebra":\(zebra),"lion":\(lion),"energy":0,"dG":0,"dZ":0,"dL":0,"ratio":\(String(format:"%.1f", zebra > 0 ? Double(zebra)/max(1,Double(lion)) : 0)),"grassPct":\(String(format:"%.1f", Double(grass)/Double(decoder.width*decoder.height)*100)),"nodes":\(decoder.width*decoder.height),"colors":7}
+        {"tick":\(currentFrame),"day":\(currentFrame/4),"year":\(String(format:"%.2f", Double(currentFrame)/1460.0)),"ms":0,"tps":0,"speed":1,"grass":\(grass),"zebra":\(zebra),"lion":\(lion),"energy":0,"dG":0,"dZ":0,"dL":0,"ratio":\(String(format:"%.1f", zebra > 0 ? Double(zebra)/max(1,Double(lion)) : 0)),"grassPct":\(String(format:"%.1f", Double(grass)/Double(decWidth*decHeight)*100)),"nodes":\(decWidth*decHeight),"colors":7}
         """
         responseBody = telemetry.data(using: .utf8)!
 
