@@ -231,14 +231,19 @@ if checkpointInterval > 0 {
 
 print()
 
-// ── Carlos Delta encoder (replaces raw frame writes) ────
+// ── Carlos Delta encoder (I-frame / P-frame, replaces raw frame writes) ────
 import Dispatch
 let asyncWriteQueue = DispatchQueue(label: "savanna.frame-writer", qos: .userInitiated)
+let keyframeInterval = 60  // I-frame every 60 frames (15 sim-days)
 var deltaEncoder: CarlosDelta.Encoder? = nil
 if let dir = recordDir {
     let deltaPath = "\(dir)/recording.savanna"
-    deltaEncoder = try? CarlosDelta.Encoder(path: deltaPath, width: width, height: height)
-    if deltaEncoder != nil { print("  Carlos Delta encoder: \(deltaPath)") }
+    deltaEncoder = try? CarlosDelta.Encoder(path: deltaPath, width: width, height: height,
+                                             keyframeInterval: keyframeInterval)
+    if deltaEncoder != nil {
+        print("  Carlos Delta encoder: \(deltaPath)")
+        print("  I-frame interval: every \(keyframeInterval) frames")
+    }
 }
 
 // ── Run ──────────────────────────────────────────────────
@@ -277,14 +282,14 @@ for t in 0..<tickLimit {
         }
     }
 
-    // Frame recording — Carlos Delta encoding (XOR + zlib)
+    // Frame recording — Carlos Delta encoding (XOR + zlib, Morton order on disk)
     if let enc = deltaEncoder {
-        let entities = engine.readEntitiesRowMajor()
+        let entities = engine.readEntities()  // Morton order — no de-Morton, straight to disk
         asyncWriteQueue.async {
             enc.addFrame(entities)
         }
     } else if let dir = recordDir {
-        // Fallback: raw frame write
+        // Fallback: raw frame write (row-major for compatibility)
         let entities = engine.readEntitiesRowMajor()
         let framePath = "\(dir)/frame_\(String(format: "%06d", t)).bin"
         let frameNum = t + 1
@@ -357,10 +362,22 @@ for t in 0..<tickLimit {
         if cmd.hasPrefix("archive") {
             let path = cmd.replacingOccurrences(of: "archive ", with: "")
             recorder?.archive(to: path, width: width, height: height)
-        } else if cmd == "reset" {
+        } else if cmd == "reset" || cmd.hasPrefix("scenario ") {
+            // Parse scenario params if present
+            var zFrac = 0.286, lFrac = 0.00286, gFrac = 0.80
+            if cmd.hasPrefix("scenario ") {
+                let jsonStr = String(cmd.dropFirst("scenario ".count))
+                if let data = jsonStr.data(using: .utf8),
+                   let params = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    zFrac = params["zebraFrac"] as? Double ?? zFrac
+                    lFrac = params["lionFrac"] as? Double ?? lFrac
+                    gFrac = params["grassFrac"] as? Double ?? gFrac
+                    print("  [SCENARIO] zebra=\(zFrac) lion=\(lFrac) grass=\(gFrac)")
+                }
+            }
             var newState = SavannaState(width: width, height: height)
-            newState.randomInit(grid: grid, seed: UInt64.random(in: 0...UInt64.max))
-            // Copy new state to GPU buffers
+            newState.randomInit(grid: grid, grassFrac: gFrac, zebraFrac: zFrac,
+                                lionFrac: lFrac, seed: UInt64.random(in: 0...UInt64.max))
             let entities = newState.entity
             let energies = newState.energy
             let ternaries = newState.ternary
@@ -382,7 +399,7 @@ asyncWriteQueue.sync {}
 if let enc = deltaEncoder {
     enc.finalize()
     let fileSize = (try? FileManager.default.attributesOfItem(atPath: "\(recordDir!)/recording.savanna")[.size] as? Int) ?? 0
-    print("  Carlos Delta: \(enc.frameCount) frames, \(fileSize / 1_000_000) MB compressed")
+    print("  Carlos Delta: \(enc.frameCount) frames (\(enc.iFrameCount) I + \(enc.pFrameCount) P), \(fileSize / 1_000_000) MB compressed")
 }
 
 // ── Summary ──────────────────────────────────────────────

@@ -59,11 +59,11 @@ extension SimRecorder {
             file.append(Data(repeating: 0, count: 4))
         }
 
-        // ── Raw entity frames (de-Morton to row-major for tool compatibility) ──
+        // ── Raw entity frames (Morton order — matches GPU buffers) ──
         for i in 0..<frameCount {
             let idx = (oldest + i) % capacity
             let ptr = UnsafeRawPointer(ringBuffer.contents() + idx * frameBytes)
-            file.append(deMortonFrame(ptr: ptr))
+            file.append(Data(bytes: ptr, count: frameBytes))
         }
 
         // Write
