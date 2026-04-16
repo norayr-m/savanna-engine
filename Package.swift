@@ -9,7 +9,7 @@ let package = Package(
         .library(name: "Savanna", targets: ["Savanna"]),
         .executable(name: "savanna-cli", targets: ["SavannaCLI"]),
         .executable(name: "savanna-play", targets: ["SavannaPlay"]),
-        .executable(name: "savanna-bench", targets: ["SavannaBench"]),
+        .executable(name: "savanna-app", targets: ["SavannaApp"]),
     ],
     targets: [
         .target(
@@ -28,9 +28,9 @@ let package = Package(
             path: "Sources/SavannaPlay"
         ),
         .executableTarget(
-            name: "SavannaBench",
+            name: "SavannaApp",
             dependencies: ["Savanna"],
-            path: "Sources/SavannaBench"
+            path: "Sources/SavannaApp"
         ),
         .testTarget(
             name: "SavannaTests",

@@ -38,9 +38,10 @@ public struct SavannaState {
     public mutating func randomInit(
         grid: HexGrid,
         grassFrac: Double = 0.80,
-        zebraFrac: Double = 0.005,  // sparse — see dynamics not blobs
-        lionFrac: Double = 0.00025,  // ~250 lions = ~62 prides
-        seed: UInt64 = 42
+        zebraFrac: Double = 0.286,  // Serengeti: 300K zebras / 1M cells
+        lionFrac: Double = 0.00286,  // Serengeti: 3K lions / 1M cells (100:1 ratio)
+        seed: UInt64 = 42,
+        bare: Bool = false  // true = no rivers/lake/pools, pure grass + animals
     ) {
         var rng = SplitMix64(seed: seed)
         let n = nodeCount
@@ -55,47 +56,96 @@ public struct SavannaState {
         let evenOff: [(Int,Int)] = [(1,-1),(0,-1),(-1,-1),(-1,0),(0,1),(1,0)]
         let oddOff:  [(Int,Int)] = [(1,0), (0,-1),(-1,0), (-1,1),(0,1),(1,1)]
 
-        // ── Place water: flood-fill lakes from seed ──────────
-        let numLakes = max(8, width * height / 80_000)
-        var lakeCenters: [(Int, Int)] = []
-        for _ in 0..<numLakes {
-            let cx = Int(rng.next() % UInt64(width))
-            let cy = Int(rng.next() % UInt64(height))
-            lakeCenters.append((cx, cy))
-            let lakeSize = 500 + Int(rng.next() % 1500)
+      if !bare {
+        // ── Serengeti Water Table ────────────────────────────
+        // Real hydrology: 3 rivers (E→W) + Lake Victoria (NW) + seasonal pools
+        // Grid maps to ~100km × 100km centered on Serengeti NP
+        // North = top (y=0), South = bottom (y=height)
 
-            var frontier = [(cx, cy)]
-            entity[mi(cx, cy)] = Entity.water.rawValue
-            var placed = 1
-
-            while placed < lakeSize && !frontier.isEmpty {
-                let fi = Int(rng.next() % UInt64(frontier.count))
-                let (fx, fy) = frontier[fi]
-                let offsets = (fx & 1 == 1) ? oddOff : evenOff
-
-                let startDir = Int(rng.next() % 6)
-                var added = false
-                for dd in 0..<6 {
-                    let d = (startDir + dd) % 6
-                    let nx = fx + offsets[d].0
-                    let ny = fy + offsets[d].1
-                    if nx >= 0 && nx < width && ny >= 0 && ny < height {
-                        let m = mi(nx, ny)
-                        if entity[m] != Entity.water.rawValue {
-                            entity[m] = Entity.water.rawValue
-                            frontier.append((nx, ny))
-                            placed += 1
-                            added = true
-                            break
-                        }
-                    }
+        // Helper: draw a meandering river from (x0,y) to (x1,y) with noise
+        func drawRiver(_ y0: Int, xStart: Int, xEnd: Int, meanderAmp: Int) {
+            var y = y0
+            let step = xStart < xEnd ? 1 : -1
+            var x = xStart
+            while x != xEnd {
+                // Meander: random walk in y
+                let dy = Int(rng.next() % 3) - 1  // -1, 0, or +1
+                y = min(max(2, y + dy), height - 3)
+                // River is 1-2 cells wide
+                for ry in 0..<2 {
+                    let wy = min(y + ry, height - 1)
+                    let m = mi(x, wy)
+                    entity[m] = Entity.water.rawValue
                 }
-                if !added {
-                    frontier.swapAt(fi, frontier.count - 1)
-                    frontier.removeLast()
+                x += step
+            }
+        }
+
+        // Mara River — northern quarter (y ≈ 20% of grid), runs E→W
+        drawRiver(height / 5, xStart: width - 1, xEnd: 0, meanderAmp: 3)
+
+        // Grumeti River — center (y ≈ 45%), runs E→W
+        drawRiver(height * 45 / 100, xStart: width - 1, xEnd: width / 6, meanderAmp: 4)
+
+        // Mbalageti River — southern third (y ≈ 65%), runs E→W
+        drawRiver(height * 65 / 100, xStart: width * 3 / 4, xEnd: 0, meanderAmp: 3)
+
+        // Lake Victoria — NW corner (partial, only SE shore visible)
+        // Irregular coastline: perturb radius with angular noise
+        let lakeX = width / 10
+        let lakeY = height / 8
+        let lakeR = Double(width) / 12.0
+        // Pre-compute noisy radius at 64 angular samples
+        var coastNoise = [Double](repeating: 0, count: 64)
+        for i in 0..<64 {
+            coastNoise[i] = 0.7 + Double(rng.next() % 600) / 1000.0  // 0.7 to 1.3
+        }
+        for dy in Int(-lakeR - 10)..<Int(lakeR + 10) {
+            for dx in Int(-lakeR - 10)..<Int(lakeR + 10) {
+                let dist = sqrt(Double(dx * dx + dy * dy))
+                let angle = atan2(Double(dy), Double(dx))
+                let idx = Int((angle + .pi) / (2.0 * .pi) * 64.0) % 64
+                // Interpolate between two noise samples for smooth coastline
+                let idx2 = (idx + 1) % 64
+                let frac = ((angle + .pi) / (2.0 * .pi) * 64.0) - Double(idx)
+                let noiseR = coastNoise[idx] * (1.0 - frac) + coastNoise[idx2] * frac
+                if dist < lakeR * noiseR {
+                    let x = lakeX + dx, y = lakeY + dy
+                    if x >= 0 && x < width && y >= 0 && y < height {
+                        entity[mi(x, y)] = Entity.water.rawValue
+                    }
                 }
             }
         }
+
+        // Seasonal pools — small scattered water holes (10-15)
+        let numPools = 12
+        for _ in 0..<numPools {
+            let px = Int(rng.next() % UInt64(width))
+            let py = Int(rng.next() % UInt64(height))
+            let poolSize = 20 + Int(rng.next() % 80)
+            var frontier = [(px, py)]
+            entity[mi(px, py)] = Entity.water.rawValue
+            var placed = 1
+            while placed < poolSize && !frontier.isEmpty {
+                let fi = Int(rng.next() % UInt64(frontier.count))
+                let (fx, fy) = frontier[fi]
+                let offsets = (fx & 1 == 1) ? oddOff : evenOff
+                let d = Int(rng.next() % 6)
+                let nx = fx + offsets[d].0, ny = fy + offsets[d].1
+                if nx >= 0 && nx < width && ny >= 0 && ny < height {
+                    let m = mi(nx, ny)
+                    if entity[m] != Entity.water.rawValue {
+                        entity[m] = Entity.water.rawValue
+                        frontier.append((nx, ny))
+                        placed += 1
+                    }
+                }
+                if placed == 1 { frontier.removeAll(); break }
+            }
+        }
+
+      } // end if !bare
 
         // ── Place grass (skip water cells) ────────────────────
         for y in 0..<height {
@@ -115,18 +165,12 @@ public struct SavannaState {
         let cooldownZ = 365  // must match REPRO_COOLDOWN_ZEBRA in metal
         let reproAgeZ = 730  // must match REPRO_AGE_ZEBRA in metal
         let maxAgeZ   = 32000
-        // Zebras: one massive herd, position varies by seed
-        let zCx = width / 4 + Int(rng.next() % UInt64(width / 2))
-        let zCy = height / 4 + Int(rng.next() % UInt64(height / 2))
-        let spread = width / 4  // big spread
-
-        for _ in 0..<zebraTotal {
-            let dx = Int(rng.next() % UInt64(spread)) - spread/2
-                   + Int(rng.next() % UInt64(spread)) - spread/2
-            let dy = Int(rng.next() % UInt64(spread)) - spread/2
-                   + Int(rng.next() % UInt64(spread)) - spread/2
-            let x = min(max(0, zCx + dx), width - 1)
-            let y = min(max(0, zCy + dy), height - 1)
+        // DIAGNOSTIC: 100 zebras bottom-left, 100 lions top-right
+        let diagZebras = min(100, zebraTotal)
+        let diagLions = 100
+        for _ in 0..<diagZebras {
+            let x = Int(rng.next() % UInt64(width / 10))
+            let y = height * 9 / 10 + Int(rng.next() % UInt64(height / 10))
             let m = mi(x, y)
             if entity[m] == Entity.empty.rawValue || entity[m] == Entity.grass.rawValue {
                 entity[m] = Entity.zebra.rawValue
@@ -140,18 +184,28 @@ public struct SavannaState {
             }
         }
 
-        // ── Place lions as SEPARATED PRIDES ──────────────
-        // Each pride = 4 lions clustered tight. Prides spaced >50 hex apart
-        // (outside scent cutoff ~30 hex). Distributed across grid.
-        let lionTotal = Int(Double(n) * lionFrac)
+        // DIAGNOSTIC: 100 lions top-right corner
         let cooldownL = 2920
         let reproAgeL = 2920
         let maxAgeL   = 18000
+        for _ in 0..<diagLions {
+            let x = width * 9 / 10 + Int(rng.next() % UInt64(width / 10))
+            let y = Int(rng.next() % UInt64(height / 10))
+            let m = mi(min(x, width-1), min(y, height-1))
+            if entity[m] == Entity.empty.rawValue || entity[m] == Entity.grass.rawValue {
+                entity[m] = Entity.lion.rawValue
+                energy[m] = Int16(4000)
+                ternary[m] = 1
+                orientation[m] = Int8(rng.next() % 6)
+                gauge[m] = Int16(clamping: reproAgeL + Int(rng.next() % UInt64(maxAgeL - reproAgeL)))
+            }
+        }
+        return  // skip normal lion placement
+        // DEAD CODE BELOW — normal lion placement
+        let lionTotal = Int(Double(n) * lionFrac)
         let prideSize = 4
         let numPrides = max(1, lionTotal / prideSize)
-        let prideSpacing = 50  // hex between pride centers (> scent range)
-
-        // Grid of pride positions, evenly spaced
+        let prideSpacing = 50
         let pridesPerSide = max(1, Int(sqrt(Double(numPrides))))
         let stepX = width / (pridesPerSide + 1)
         let stepY = height / (pridesPerSide + 1)
@@ -196,7 +250,7 @@ public struct SavannaState {
                     entity[m] = Entity.lion.rawValue
                     energy[m] = Int16(200 + Int(rng.next() % 101))
                     ternary[m] = 1
-                    orientation[m] = prideFacing  // face toward zebras
+                    orientation[m] = Int8(rng.next() % 6)  // random facing — scent guides them
                     // Stagger ages within pride: lion 0=young, 1=mid-young, 2=mid-old, 3=old
                     let ageSlot = li  // 0,1,2,3
                     let slotSize = (maxAgeL - reproAgeL) / prideSize

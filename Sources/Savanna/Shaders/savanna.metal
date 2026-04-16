@@ -101,8 +101,6 @@ constant int dir_y[6] = {-5,-10, -5,  5, 10,  5};
 // Wind-biased diffusion: scent drifts downwind.
 // Real seasonal pattern: NE monsoon (Nov-Mar), SE trades (May-Oct).
 // wind_dir 0-5 maps to hex directions. Rotates with seasons.
-constant float WIND_STRENGTH = 0.6;  // 0=isotropic, 1=fully directional
-
 kernel void diffuse_scent(
     device float*         scent      [[ buffer(0) ]],
     device const float*   scent_prev [[ buffer(1) ]],
@@ -111,7 +109,8 @@ kernel void diffuse_scent(
     constant int8_t&      source_type[[ buffer(4) ]],
     constant float&       emit_str   [[ buffer(5) ]],
     constant uint32_t&    node_count [[ buffer(6) ]],
-    constant uint32_t&    wind_dir   [[ buffer(7) ]],  // Serengeti wind 0-5
+    constant uint32_t&    wind_dir   [[ buffer(7) ]],  // 0-5 hex dir, 6+ = no wind
+    constant float&       wind_str   [[ buffer(8) ]],  // 0=isotropic, 1=fully directional
     uint                  gid        [[ thread_position_in_grid ]]
 ) {
     if (gid >= node_count) return;
@@ -122,8 +121,9 @@ kernel void diffuse_scent(
     float s = scent_prev[gid] * decay;
 
     // Wind-biased neighbor spread
-    // Scent blows downwind: upwind neighbor's scent reaches us more
-    int upwind = (int(wind_dir) + 3) % 6;
+    // wind_dir 0-5 = hex direction, 6+ = no wind (isotropic diffusion)
+    bool hasWind = (wind_dir < 6);
+    int upwind = hasWind ? (int(wind_dir) + 3) % 6 : 0;
     float nb_weighted = 0; float weight_total = 0;
     for (int d = 0; d < 6; d++) {
         int32_t nb = neighbors[gid * 6 + d];
@@ -132,7 +132,8 @@ kernel void diffuse_scent(
         int angle = abs(d - upwind);
         if (angle > 3) angle = 6 - angle;
         // Upwind neighbor contributes most (w=1+WIND), downwind least (w=1-WIND*0.5)
-        float w = 1.0 + WIND_STRENGTH * (1.0 - float(angle) / 3.0);
+        // If no wind: all neighbors equal weight (angle ignored)
+        float w = hasWind ? 1.0 + wind_str * (1.0 - float(angle) / 3.0) : 1.0;
         nb_weighted += scent_prev[nb] * w;
         weight_total += w;
     }
@@ -668,8 +669,8 @@ kernel void tick_phase(
                     // Murmur-style hash: multiply, xor-shift, multiply
                     uint h = uint(node) ^ (tick * 374761393u);
                     h ^= h >> 16; h *= 2654435761u; h ^= h >> 13; h *= 1103515245u; h ^= h >> 16;
-                    if ((h % 100u) < 50) {
-                        // Keep walking straight
+                    if ((h % 100u) < 0) {
+                        // Keep walking straight (DISABLED — diagnostic for drift bias)
                         int32_t fwd = neighbors[node * 6 + int(my_facing)];
                         if (fwd >= 0 && (entity[fwd] == EMPTY || entity[fwd] == GRASS)) {
                             target = fwd;

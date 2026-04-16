@@ -1,0 +1,20 @@
+{
+  "name": "Bone Marrow",
+  "description": "Trabecular structure from predator-prey dynamics. The bone grows itself.",
+  "emoji": "🦴",
+  "shortcut": "6",
+  "voiceover": "What you are about to see... looks like a cross-section of living bone. The trabecular structure... those branching white filaments surrounded by dark marrow spaces... is not drawn. It is not designed. It grows... from the simple rules of predation and flight. The zebra herds... fleeing outward from lion prides... form elongated streams. These streams branch and reconnect... creating a network of corridors separated by empty space. The geometry is identical to cancellous bone tissue... the spongy interior of your femur. And this is not a coincidence. Bone trabeculae form along lines of mechanical stress... just as zebra corridors form along lines of predation pressure. The same optimization principle... the same branching topology... arising from completely different physics. Wolff's law... written in ones and zeros.",
+  "params": {
+    "zebraFrac": 0.35,
+    "lionFrac": 0.015,
+    "grassFrac": 0.75,
+    "killEnergy": 2000,
+    "splitEnergy": 6000,
+    "foodEnergy": 150,
+    "bmrLionActive": 3,
+    "satiationThresh": 4000,
+    "huntSuccess": 80,
+    "windEnabled": false,
+    "windStrength": 0
+  }
+}
