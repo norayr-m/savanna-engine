@@ -326,8 +326,20 @@ public final class MetalEngine {
         var tick = tickNumber
         var day: UInt32 = isDay ? 1 : 0
 
-        // 2. Four color-group tick phases
-        for phase in 0..<HexGrid.colorCount {
+        // 2. Seven color-group tick phases — SHUFFLED every tick
+        // Without shuffling, Color 0→1 steps process twice per tick,
+        // Color 6→0 steps wait. Creates phantom "chromatic advection" —
+        // information flows faster along the color gradient.
+        // Fix by Gemini Deep Think, 2026-04-15
+        var colorOrder = Array(0..<HexGrid.colorCount)
+        // Fisher-Yates shuffle using tick as seed
+        var shuffleSeed = tickNumber &* 2654435761
+        for i in stride(from: colorOrder.count - 1, through: 1, by: -1) {
+            shuffleSeed = shuffleSeed &* 1103515245 &+ 12345
+            let j = Int(shuffleSeed >> 16) % (i + 1)
+            colorOrder.swapAt(i, j)
+        }
+        for phase in colorOrder {
             guard let enc = cmdBuf.makeComputeCommandEncoder() else { continue }
             enc.setComputePipelineState(tickPipeline)
             enc.setBuffer(entityBuf, offset: 0, index: 0)

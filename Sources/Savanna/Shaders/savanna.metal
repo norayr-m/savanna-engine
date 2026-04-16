@@ -319,7 +319,16 @@ kernel void tick_phase(
 
     // ── SENSE 1: HEARING (omnidirectional, r=1) ──────────
     int hear_pred = 0, hear_food = 0, hear_zebra = 0, hear_empty = 0, hear_lion = 0;
-    uint dir_offset = (uint(node) * 2654435761u ^ tick * 374761393u) % 6u;
+    // Murmur3 avalanche: shatter Morton geometric signature before modulo
+    // Without this, lowest bit of Morton code = column parity → even columns
+    // always check even directions first → deterministic chiral ratchet → NW drift
+    // Fix by Gemini Deep Think, 2026-04-15
+    uint _dh = uint(node) ^ (tick * 374761393u);
+    _dh *= 0x85ebca6bu;
+    _dh ^= _dh >> 13;
+    _dh *= 0xc2b2ae35u;
+    _dh ^= _dh >> 16;
+    uint dir_offset = _dh % 6u;
 
     for (int dd = 0; dd < 6; dd++) {
         int d = int((dd + dir_offset) % 6u);
