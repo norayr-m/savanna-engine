@@ -108,12 +108,18 @@ struct DJWindow: View {
                     ScenePill("🔴 Haboob") { engine.zebraFrac = 0.286; engine.lionFrac = 0.00286; engine.windEnabled = true; engine.reset(); engine.start() }
                     ScenePill("🦴 Bone") { engine.zebraFrac = 0.35; engine.lionFrac = 0.015; engine.windEnabled = false; engine.reset(); engine.start() }
                     ScenePill("⬜ Fire") { engine.zebraFrac = 0.02; engine.lionFrac = 0.00025; engine.windEnabled = false; engine.reset(); engine.start() }
+                }
+                .padding(.horizontal, 20)
+
+                HStack(spacing: 8) {
                     ScenePill("🎲 Random") {
                         engine.zebraFrac = Double.random(in: 0.01...0.4)
                         engine.lionFrac = Double.random(in: 0.0001...0.02)
                         engine.windEnabled = Bool.random()
                         engine.reset(); engine.start()
                     }
+                    ScenePill("🌍 Serengeti") { engine.zebraFrac = 0.286; engine.lionFrac = 0.00286; engine.grassFrac = 0.80; engine.windEnabled = true; engine.reset(); engine.start() }
+                    ScenePill("🎨 Canvas") { engine.zebraFrac = 0; engine.lionFrac = 0; engine.grassFrac = 0.95; engine.windEnabled = false; engine.reset(); engine.start() }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)

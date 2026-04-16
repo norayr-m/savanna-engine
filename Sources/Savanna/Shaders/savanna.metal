@@ -678,8 +678,8 @@ kernel void tick_phase(
                     // Murmur-style hash: multiply, xor-shift, multiply
                     uint h = uint(node) ^ (tick * 374761393u);
                     h ^= h >> 16; h *= 2654435761u; h ^= h >> 13; h *= 1103515245u; h ^= h >> 16;
-                    if ((h % 100u) < 0) {
-                        // Keep walking straight (DISABLED — diagnostic for drift bias)
+                    if ((h % 100u) < 30) {
+                        // Keep walking straight (30% — Lévy flight persistence)
                         int32_t fwd = neighbors[node * 6 + int(my_facing)];
                         if (fwd >= 0 && (entity[fwd] == EMPTY || entity[fwd] == GRASS)) {
                             target = fwd;

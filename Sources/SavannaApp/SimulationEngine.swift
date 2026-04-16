@@ -83,7 +83,7 @@ class SimulationEngine: ObservableObject {
         var state = SavannaState(width: side, height: side)
         state.randomInit(grid: g, grassFrac: grassFrac, zebraFrac: zebraFrac,
                          lionFrac: lionFrac, seed: UInt64.random(in: 0...UInt64.max),
-                         bare: !windEnabled)  // bare map when wind off — diagnostic
+                         bare: false)
 
         do {
             metalEngine = try MetalEngine(grid: g, state: state)
@@ -130,7 +130,7 @@ class SimulationEngine: ObservableObject {
         var state = SavannaState(width: gridSize, height: gridSize)
         state.randomInit(grid: g, grassFrac: grassFrac, zebraFrac: zebraFrac,
                          lionFrac: lionFrac, seed: UInt64.random(in: 0...UInt64.max),
-                         bare: !windEnabled)  // bare map when wind off — diagnostic
+                         bare: false)
         let entities = state.entity
         let energies = state.energy
         let ternaries = state.ternary

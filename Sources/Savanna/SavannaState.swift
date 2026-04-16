@@ -165,12 +165,10 @@ public struct SavannaState {
         let cooldownZ = 365  // must match REPRO_COOLDOWN_ZEBRA in metal
         let reproAgeZ = 730  // must match REPRO_AGE_ZEBRA in metal
         let maxAgeZ   = 32000
-        // DIAGNOSTIC: 100 zebras bottom-left, 100 lions top-right
-        let diagZebras = min(100, zebraTotal)
-        let diagLions = 100
-        for _ in 0..<diagZebras {
-            let x = Int(rng.next() % UInt64(width / 10))
-            let y = height * 9 / 10 + Int(rng.next() % UInt64(height / 10))
+        // Zebras: scattered uniformly across grid
+        for _ in 0..<zebraTotal {
+            let x = Int(rng.next() % UInt64(width))
+            let y = Int(rng.next() % UInt64(height))
             let m = mi(x, y)
             if entity[m] == Entity.empty.rawValue || entity[m] == Entity.grass.rawValue {
                 entity[m] = Entity.zebra.rawValue
@@ -184,25 +182,11 @@ public struct SavannaState {
             }
         }
 
-        // DIAGNOSTIC: 100 lions top-right corner
+        // ── Place lions as SEPARATED PRIDES ──────────────
+        let lionTotal = Int(Double(n) * lionFrac)
         let cooldownL = 2920
         let reproAgeL = 2920
         let maxAgeL   = 18000
-        for _ in 0..<diagLions {
-            let x = width * 9 / 10 + Int(rng.next() % UInt64(width / 10))
-            let y = Int(rng.next() % UInt64(height / 10))
-            let m = mi(min(x, width-1), min(y, height-1))
-            if entity[m] == Entity.empty.rawValue || entity[m] == Entity.grass.rawValue {
-                entity[m] = Entity.lion.rawValue
-                energy[m] = Int16(4000)
-                ternary[m] = 1
-                orientation[m] = Int8(rng.next() % 6)
-                gauge[m] = Int16(clamping: reproAgeL + Int(rng.next() % UInt64(maxAgeL - reproAgeL)))
-            }
-        }
-        return  // skip normal lion placement
-        // DEAD CODE BELOW — normal lion placement
-        let lionTotal = Int(Double(n) * lionFrac)
         let prideSize = 4
         let numPrides = max(1, lionTotal / prideSize)
         let prideSpacing = 50
