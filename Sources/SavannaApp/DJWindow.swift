@@ -105,9 +105,9 @@ struct DJWindow: View {
 
                 // Quick scenes — small pills
                 HStack(spacing: 8) {
-                    ScenePill("🔴 Haboob") { engine.zebraFrac = 0.286; engine.lionFrac = 0.00286; engine.windEnabled = true; engine.reset(); engine.start() }
-                    ScenePill("🦴 Bone") { engine.zebraFrac = 0.35; engine.lionFrac = 0.015; engine.windEnabled = false; engine.reset(); engine.start() }
-                    ScenePill("⬜ Fire") { engine.zebraFrac = 0.02; engine.lionFrac = 0.00025; engine.windEnabled = false; engine.reset(); engine.start() }
+                    ScenePill("🔴 Haboob") { engine.zebraFrac = 0.05; engine.lionFrac = 0.001; engine.grassFrac = 0.85; engine.windEnabled = true; engine.reset(); engine.start() }
+                    ScenePill("🦴 Bone") { engine.zebraFrac = 0.08; engine.lionFrac = 0.004; engine.grassFrac = 0.80; engine.windEnabled = false; engine.reset(); engine.start() }
+                    ScenePill("⬜ Fire") { engine.zebraFrac = 0.02; engine.lionFrac = 0.00025; engine.grassFrac = 0.80; engine.windEnabled = false; engine.reset(); engine.start() }
                 }
                 .padding(.horizontal, 20)
 
@@ -118,7 +118,7 @@ struct DJWindow: View {
                         engine.windEnabled = Bool.random()
                         engine.reset(); engine.start()
                     }
-                    ScenePill("🌍 Serengeti") { engine.zebraFrac = 0.286; engine.lionFrac = 0.00286; engine.grassFrac = 0.80; engine.windEnabled = true; engine.reset(); engine.start() }
+                    ScenePill("🌍 Serengeti") { engine.zebraFrac = 0.04; engine.lionFrac = 0.0004; engine.grassFrac = 0.85; engine.windEnabled = true; engine.reset(); engine.start() }
                     ScenePill("🎨 Canvas") { engine.zebraFrac = 0; engine.lionFrac = 0; engine.grassFrac = 0.95; engine.windEnabled = false; engine.reset(); engine.start() }
                 }
                 .padding(.horizontal, 20)
