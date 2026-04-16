@@ -35,5 +35,12 @@ struct SavannaApp: App {
         }
         .defaultSize(width: 400, height: 800)
         .defaultPosition(.leading)
+
+        // Window 4: Telemetry — Population graphs
+        Window("Savanna — Telemetry", id: "telemetry") {
+            TelemetryWindow(engine: engine)
+                .frame(minWidth: 400, minHeight: 300)
+        }
+        .defaultSize(width: 600, height: 300)
     }
 }

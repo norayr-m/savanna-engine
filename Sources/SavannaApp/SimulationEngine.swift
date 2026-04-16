@@ -9,10 +9,27 @@ import Savanna
 
 @MainActor
 class SimulationEngine: ObservableObject {
-    static let version = "0.4.0"  // bump on each build
+    static let version = "0.5.0"  // bump on each build
 
     enum PlacementMode { case none, zebra, lion }
     @Published var placementMode: PlacementMode = .none
+
+    // Zoom/Pan
+    @Published var zoom: Double = 1.0
+    @Published var panX: Float = 0
+    @Published var panY: Float = 0
+
+    // Time control
+    static let speedTiers = ["1x", "2x", "4x", "10x", "32x", "100x", "MAX"]
+    static let speedSleeps: [UInt32] = [50, 25, 12, 5, 2, 0, 0]
+    @Published var speedTier: Int = 0
+    @Published var speedLabel: String = "1x"
+    @Published var showSpeedIndicator = false
+
+    // Population history for graph
+    struct PopSnapshot { var zebra: Int; var lion: Int; var grass: Int }
+    @Published var populationHistory: [PopSnapshot] = []
+    private let maxHistory = 600  // 10 minutes at 1 sample/sec
 
     // State
     @Published var isRunning = false
@@ -141,6 +158,7 @@ class SimulationEngine: ObservableObject {
         ternaries.withUnsafeBytes { metalEngine?.ternaryBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
         gauges.withUnsafeBytes { metalEngine?.gaugeBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
         orientations.withUnsafeBytes { metalEngine?.orientationBuf.contents().copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+        populationHistory.removeAll()
         metalEngine?.resetScent()
         metalEngine?.windActive = windEnabled
         metalEngine?.windOverride = windEnabled ? UInt32(round(windDirection / (2.0 * .pi) * 6.0)) % 6 : nil
@@ -179,7 +197,16 @@ class SimulationEngine: ObservableObject {
         // Update census every 20 ticks
         if tick % 20 == 0 {
             updateCensus()
+            // Sample population for graph
+            populationHistory.append(PopSnapshot(zebra: zebra, lion: lion, grass: grass))
+            if populationHistory.count > maxHistory {
+                populationHistory.removeFirst()
+            }
         }
+
+        // Speed control
+        let sleepMs = Self.speedSleeps[speedTier]
+        if sleepMs > 0 { usleep(sleepMs * 1000) }
     }
 
     private func updateCensus() {
@@ -220,6 +247,15 @@ class SimulationEngine: ObservableObject {
     /// Get entity buffer as row-major for rendering
     func getEntityBuffer() -> [Int8]? {
         return metalEngine?.readEntitiesRowMajor()
+    }
+
+    func cycleSpeed() {
+        speedTier = (speedTier + 1) % Self.speedTiers.count
+        speedLabel = Self.speedTiers[speedTier]
+        showSpeedIndicator = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.showSpeedIndicator = false
+        }
     }
 
     /// Place animals at grid position (from click in viewer)

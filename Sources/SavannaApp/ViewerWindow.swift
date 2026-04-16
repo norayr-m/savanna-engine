@@ -1,6 +1,11 @@
-/// ViewerWindow — Full Metal rendering of the savanna.
-/// Goes on the 83" AirPlay display. Pure visual. No controls.
+/// ViewerWindow — Full Metal rendering with zoom, pan, keyboard shortcuts, graph overlay.
 /// Entity buffer → GPU fragment shader palette lookup. Zero CPU in render path.
+///
+/// Shortcuts:
+///   Scroll/pinch: zoom    Drag: pan    Space: fit to window
+///   T: time speed cycle   G: toggle graph overlay    S: toggle stats
+///   N: nuke/reset         P: toggle scenarios (DJ panel)
+///   Click: place zebras   Alt+click: place lions
 
 import SwiftUI
 import Metal
@@ -9,6 +14,8 @@ import Savanna
 
 struct ViewerWindow: View {
     @ObservedObject var engine: SimulationEngine
+    @State private var showGraph = true
+    @State private var showStats = true
 
     var body: some View {
         ZStack {
@@ -26,14 +33,15 @@ struct ViewerWindow: View {
                     Text("No simulation running")
                         .font(.system(size: 18, design: .monospaced))
                         .foregroundColor(Color(red: 0.35, green: 0.29, blue: 0.16))
-                    Text("Open Simulator window → Set grid size → Start")
+                    Text("Open Simulator → Setup → Start")
                         .font(.system(size: 14, design: .monospaced))
                         .foregroundColor(Color(red: 0.25, green: 0.20, blue: 0.12))
                 }
             }
 
             // HUD overlay
-            VStack {
+            VStack(spacing: 0) {
+                // Top bar
                 HStack {
                     HStack(spacing: 16) {
                         Text("SAVANNA")
@@ -50,16 +58,18 @@ struct ViewerWindow: View {
                         .font(.system(size: 14, weight: .semibold, design: .monospaced))
                     }
                     Spacer()
-                    HStack(spacing: 12) {
-                        Text("d\(engine.simDay)")
-                        Text("y\(String(format: "%.1f", engine.simYear))")
-                        Text("\(Int(engine.tps)) tps")
-                        Text(String(format: "%.1f GCUPS", engine.gcups))
-                        Text("v\(SimulationEngine.version)")
-                            .foregroundColor(Color(red: 0.30, green: 0.25, blue: 0.15))
+                    if showStats {
+                        HStack(spacing: 12) {
+                            Text("d\(engine.simDay)")
+                            Text("y\(String(format: "%.1f", engine.simYear))")
+                            Text("\(Int(engine.tps)) tps")
+                            Text(String(format: "%.1f GCUPS", engine.gcups))
+                            Text("v\(SimulationEngine.version)")
+                                .foregroundColor(Color(red: 0.30, green: 0.25, blue: 0.15))
+                        }
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundColor(Color(red: 0.50, green: 0.42, blue: 0.28))
                     }
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundColor(Color(red: 0.50, green: 0.42, blue: 0.28))
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
@@ -67,31 +77,143 @@ struct ViewerWindow: View {
 
                 Spacer()
 
-                // Placement mode indicator
-                if engine.placementMode != .none {
-                    HStack {
-                        Spacer()
-                        Text(engine.placementMode == .zebra ? "🦓 CLICK TO PLACE ZEBRAS" : "🦁 CLICK TO PLACE LIONS")
-                            .font(.system(size: 14, weight: .bold, design: .monospaced))
-                            .foregroundColor(engine.placementMode == .zebra ? .white : Color(red: 0.85, green: 0.45, blue: 0.20))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(8)
-                        Spacer()
-                    }
-                    .padding(.bottom, 40)
+                // Graph overlay (bottom)
+                if showGraph && engine.isRunning {
+                    PopulationGraph(engine: engine)
+                        .frame(height: 120)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 40)
+                }
+
+                // Bottom shortcut bar
+                HStack(spacing: 16) {
+                    shortcutLabel("scroll", "zoom")
+                    shortcutLabel("drag", "pan")
+                    shortcutLabel("space", "fit")
+                    shortcutLabel("T", "speed")
+                    shortcutLabel("G", "graph")
+                    shortcutLabel("S", "stats")
+                    shortcutLabel("N", "reset")
+                    shortcutLabel("click", "zebra")
+                    shortcutLabel("⌥click", "lion")
+                }
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(Color(red: 0.35, green: 0.29, blue: 0.16))
+                .padding(.horizontal, 20)
+                .padding(.vertical, 6)
+                .background(Color.black.opacity(0.4))
+            }
+
+            // Placement indicator
+            if engine.placementMode != .none {
+                VStack {
+                    Spacer()
+                    Text(engine.placementMode == .zebra ? "🦓 PLACING ZEBRAS" : "🦁 PLACING LIONS")
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .foregroundColor(engine.placementMode == .zebra ? .white : Color(red: 0.85, green: 0.45, blue: 0.20))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.black.opacity(0.7))
+                        .cornerRadius(8)
+                        .padding(.bottom, 50)
                 }
             }
+
+            // Time speed indicator
+            if engine.showSpeedIndicator {
+                Text(engine.speedLabel)
+                    .font(.system(size: 36, weight: .bold, design: .monospaced))
+                    .foregroundColor(Color(red: 0.77, green: 0.64, blue: 0.35))
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(Color.black.opacity(0.7))
+                    .cornerRadius(12)
+                    .transition(.opacity)
+            }
+        }
+        .onAppear {
+            NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                handleKey(event)
+                return event
+            }
+        }
+    }
+
+    func handleKey(_ event: NSEvent) {
+        switch event.charactersIgnoringModifiers {
+        case " ":
+            engine.zoom = 1.0; engine.panX = 0; engine.panY = 0
+        case "t", "T":
+            engine.cycleSpeed()
+        case "g", "G":
+            withAnimation { showGraph.toggle() }
+        case "s", "S":
+            withAnimation { showStats.toggle() }
+        case "n", "N":
+            engine.reset(); engine.start()
+        default: break
+        }
+    }
+
+    func shortcutLabel(_ key: String, _ action: String) -> some View {
+        HStack(spacing: 3) {
+            Text(key).foregroundColor(Color(red: 0.77, green: 0.64, blue: 0.35))
+            Text(action)
         }
     }
 }
 
-/// MetalView — MTKView wrapped for SwiftUI. Direct GPU rendering.
+// MARK: - Population Graph Overlay
+
+struct PopulationGraph: View {
+    @ObservedObject var engine: SimulationEngine
+
+    var body: some View {
+        Canvas { context, size in
+            let w = size.width
+            let h = size.height
+            let history = engine.populationHistory
+            guard history.count > 1 else { return }
+
+            // Background
+            context.fill(
+                Path(CGRect(origin: .zero, size: size)),
+                with: .color(Color.black.opacity(0.6))
+            )
+
+            let maxPop = max(1, history.map { max($0.zebra, $0.lion) }.max() ?? 1)
+
+            // Zebra line (white)
+            var zebraPath = Path()
+            for (i, h) in history.enumerated() {
+                let x = CGFloat(i) / CGFloat(history.count - 1) * w
+                let y = (1.0 - CGFloat(h.zebra) / CGFloat(maxPop)) * size.height
+                if i == 0 { zebraPath.move(to: CGPoint(x: x, y: y)) }
+                else { zebraPath.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            context.stroke(zebraPath, with: .color(Color(red: 0.85, green: 0.83, blue: 0.80)), lineWidth: 1.5)
+
+            // Lion line (red)
+            var lionPath = Path()
+            for (i, h) in history.enumerated() {
+                let x = CGFloat(i) / CGFloat(history.count - 1) * w
+                let y = (1.0 - CGFloat(h.lion) / CGFloat(maxPop)) * size.height
+                if i == 0 { lionPath.move(to: CGPoint(x: x, y: y)) }
+                else { lionPath.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            context.stroke(lionPath, with: .color(Color(red: 0.75, green: 0.25, blue: 0.19)), lineWidth: 1.5)
+        }
+        .cornerRadius(8)
+        .opacity(0.85)
+    }
+}
+
+// MARK: - Metal View with Zoom/Pan
+
 struct MetalView: NSViewRepresentable {
     @ObservedObject var engine: SimulationEngine
 
-    func makeNSView(context: Context) -> MTKView {
+    func makeNSView(context: Context) -> ClickableMTKView {
         let view = ClickableMTKView()
         view.device = MTLCreateSystemDefaultDevice()
         view.colorPixelFormat = .bgra8Unorm
@@ -104,7 +226,7 @@ struct MetalView: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: MTKView, context: Context) {
+    func updateNSView(_ nsView: ClickableMTKView, context: Context) {
         context.coordinator.engine = engine
     }
 
@@ -132,7 +254,6 @@ class MetalViewCoordinator: NSObject, MTKViewDelegate {
               let descriptor = view.currentRenderPassDescriptor,
               let device = view.device else { return }
 
-        // Lazy init
         if commandQueue == nil { commandQueue = device.makeCommandQueue() }
         if pipelineState == nil { setupPipeline(device: device) }
 
@@ -145,19 +266,27 @@ class MetalViewCoordinator: NSObject, MTKViewDelegate {
         renderEncoder.setRenderPipelineState(ps)
         renderEncoder.setVertexBuffer(vb, offset: 0, index: 0)
 
-        // Pass entity buffer directly to fragment shader — NO CPU readback
+        // Entity buffer — direct GPU read
         renderEncoder.setFragmentBuffer(metalEngine.entityBuf, offset: 0, index: 0)
 
-        // Pass grid dimensions as uniforms
+        // Grid dimensions
         var gridW = UInt32(engine.gridSize)
         var gridH = UInt32(engine.gridSize)
         renderEncoder.setFragmentBytes(&gridW, length: 4, index: 1)
         renderEncoder.setFragmentBytes(&gridH, length: 4, index: 2)
 
-        // Pass mortonRank for GPU-side row-major → Morton rank lookup
+        // Morton mapping
         if let mrBuf = engine.mortonRankBuf {
             renderEncoder.setFragmentBuffer(mrBuf, offset: 0, index: 3)
         }
+
+        // Zoom/Pan uniforms
+        var zoom = Float(engine.zoom)
+        var panX = Float(engine.panX)
+        var panY = Float(engine.panY)
+        renderEncoder.setFragmentBytes(&zoom, length: 4, index: 4)
+        renderEncoder.setFragmentBytes(&panX, length: 4, index: 5)
+        renderEncoder.setFragmentBytes(&panY, length: 4, index: 6)
 
         renderEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
         renderEncoder.endEncoding()
@@ -166,7 +295,6 @@ class MetalViewCoordinator: NSObject, MTKViewDelegate {
     }
 
     func setupPipeline(device: MTLDevice) {
-        // Fragment shader reads entity buffer directly, does palette lookup on GPU
         let shaderSrc = """
         #include <metal_stdlib>
         using namespace metal;
@@ -183,13 +311,12 @@ class MetalViewCoordinator: NSObject, MTKViewDelegate {
             return o;
         }
 
-        // Palette: entity code → RGB color
         constant float3 palette[] = {
-            float3(0.102, 0.078, 0.031),  // 0: empty (dark brown)
-            float3(0.227, 0.290, 0.094),  // 1: grass (green)
-            float3(0.910, 0.894, 0.863),  // 2: zebra (white)
-            float3(0.706, 0.157, 0.118),  // 3: lion (red)
-            float3(0.157, 0.353, 0.627),  // 4: water (blue)
+            float3(0.102, 0.078, 0.031),  // empty
+            float3(0.227, 0.290, 0.094),  // grass
+            float3(0.910, 0.894, 0.863),  // zebra
+            float3(0.706, 0.157, 0.118),  // lion
+            float3(0.157, 0.353, 0.627),  // water
         };
 
         fragment float4 fs(
@@ -197,15 +324,25 @@ class MetalViewCoordinator: NSObject, MTKViewDelegate {
             device const int8_t* entities [[buffer(0)]],
             constant uint32_t& gridW [[buffer(1)]],
             constant uint32_t& gridH [[buffer(2)]],
-            device const int32_t* mortonRank [[buffer(3)]]
+            device const int32_t* mortonRank [[buffer(3)]],
+            constant float& zoom [[buffer(4)]],
+            constant float& panX [[buffer(5)]],
+            constant float& panY [[buffer(6)]]
         ) {
-            // Pixel position in grid
-            uint col = uint(in.uv.x * float(gridW));
-            uint row = uint(in.uv.y * float(gridH));
+            // Apply zoom and pan: UV → grid coordinates
+            float2 uv = in.uv;
+            uv = (uv - 0.5) / zoom + 0.5;  // zoom around center
+            uv.x -= panX / zoom;
+            uv.y -= panY / zoom;
+
+            // Out of bounds → background
+            if (uv.x < 0 || uv.x >= 1 || uv.y < 0 || uv.y >= 1)
+                return float4(0.06, 0.05, 0.02, 1);
+
+            uint col = uint(uv.x * float(gridW));
+            uint row = uint(uv.y * float(gridH));
             if (col >= gridW || row >= gridH) return float4(0.06, 0.05, 0.02, 1);
 
-            // Row-major → Morton rank → entity value
-            // mortonRank[rowMajor] gives the Morton buffer index
             uint rowMajor = row * gridW + col;
             uint mRank = uint(mortonRank[rowMajor]);
             int8_t e = entities[mRank];
@@ -222,7 +359,6 @@ class MetalViewCoordinator: NSObject, MTKViewDelegate {
         desc.colorAttachments[0].pixelFormat = .bgra8Unorm
         pipelineState = try? device.makeRenderPipelineState(descriptor: desc)
 
-        // Fullscreen quad: pos(xy) + uv(zw)
         let verts: [Float] = [
             -1, -1, 0, 1,   1, -1, 1, 1,  -1, 1, 0, 0,
              1, -1, 1, 1,   1,  1, 1, 0,  -1, 1, 0, 0,
@@ -231,28 +367,64 @@ class MetalViewCoordinator: NSObject, MTKViewDelegate {
     }
 }
 
-/// MTKView that handles clicks for animal placement
-/// Left click = 100 zebras (tight cloud). Alt+click = 10 lions (diffuse cloud).
+// MARK: - Clickable MTKView with zoom/pan/place
+
 class ClickableMTKView: MTKView {
     weak var coordinator: MetalViewCoordinator?
 
-    override func mouseDown(with event: NSEvent) {
-        handleClick(event)
+    override func scrollWheel(with event: NSEvent) {
+        guard let engine = coordinator?.engine else { return }
+        Task { @MainActor in
+            if event.modifierFlags.contains(.option) || abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+                // Horizontal scroll = pan
+                engine.panX += Float(event.scrollingDeltaX) * 0.002
+                engine.panY += Float(event.scrollingDeltaY) * 0.002
+            } else {
+                // Vertical scroll = zoom
+                let zf = 1.0 + event.scrollingDeltaY * 0.01
+                engine.zoom = max(0.1, min(50.0, engine.zoom * Double(zf)))
+            }
+        }
     }
 
+    override func magnify(with event: NSEvent) {
+        guard let engine = coordinator?.engine else { return }
+        Task { @MainActor in
+            engine.zoom = max(0.1, min(50.0, engine.zoom * (1.0 + Double(event.magnification))))
+        }
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) { handleClick(event) }
     override func mouseDragged(with event: NSEvent) {
-        handleClick(event)
+        if event.modifierFlags.contains(.command) {
+            // Cmd+drag = pan
+            guard let engine = coordinator?.engine else { return }
+            Task { @MainActor in
+                engine.panX += Float(event.deltaX) * 0.002
+                engine.panY -= Float(event.deltaY) * 0.002
+            }
+        } else {
+            handleClick(event)
+        }
     }
 
     private func handleClick(_ event: NSEvent) {
         guard let coord = coordinator else { return }
         let loc = convert(event.locationInWindow, from: nil)
-        let gridW = coord.engine.gridSize
-        let gridH = coord.engine.gridSize
-        let col = Int(loc.x / bounds.width * CGFloat(gridW))
-        let row = Int((1.0 - loc.y / bounds.height) * CGFloat(gridH))
+        let engine = coord.engine
 
-        if col >= 0 && col < gridW && row >= 0 && row < gridH {
+        // Convert screen → UV → grid with zoom/pan
+        var uvX = Float(loc.x / bounds.width)
+        var uvY = Float(1.0 - loc.y / bounds.height)
+        uvX = (uvX - 0.5) / Float(engine.zoom) + 0.5 - engine.panX / Float(engine.zoom)
+        uvY = (uvY - 0.5) / Float(engine.zoom) + 0.5 - engine.panY / Float(engine.zoom)
+
+        let col = Int(uvX * Float(engine.gridSize))
+        let row = Int(uvY * Float(engine.gridSize))
+
+        if col >= 0 && col < engine.gridSize && row >= 0 && row < engine.gridSize {
             let isAlt = event.modifierFlags.contains(.option)
             Task { @MainActor in
                 coord.engine.placeCluster(col: col, row: row, isLion: isAlt)
