@@ -21,7 +21,7 @@ GPU Simulation → Carlos Delta Encoder → .savanna file → Carlos Delta Decod
 
 Full architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
 
-[**→ Swift Infection (YouTube)**](https://youtu.be/rvI2pJnFyGg) | [**→ 100B Cell Playback (YouTube)**](https://youtu.be/6QiU7kUD3Os) | [**→ 1B Cell Playback (5.4 MB)**](https://norayr-m.github.io/savanna-engine/playback.html) | [**→ Interactive Presentation**](https://norayr-m.github.io/savanna-engine/) | [**→ About**](https://norayr-m.github.io/savanna-engine/about.html) | [**→ Benchmark**](BENCHMARK.md) | [**→ Morton Z-Curve**](https://norayr-m.github.io/savanna-engine/morton_charts.html)
+[**→ Swift Infection (YouTube)**](https://youtu.be/rvI2pJnFyGg) | [**→ Swift Haboob (YouTube)**](https://youtu.be/soCJtueiz24) | [**→ 100B Cell Playback (YouTube)**](https://youtu.be/6QiU7kUD3Os) | [**→ 1B Cell Playback (5.4 MB)**](https://norayr-m.github.io/savanna-engine/playback.html) | [**→ Interactive Presentation**](https://norayr-m.github.io/savanna-engine/) | [**→ About**](https://norayr-m.github.io/savanna-engine/about.html) | [**→ Benchmark**](BENCHMARK.md) | [**→ Morton Z-Curve**](https://norayr-m.github.io/savanna-engine/morton_charts.html)
 
 ## What This Is
 
