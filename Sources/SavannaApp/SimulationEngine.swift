@@ -53,6 +53,8 @@ class SimulationEngine: ObservableObject {
     @Published var windEnabled: Bool = true
     @Published var windDirection: Double = 0  // radians
     @Published var windStrength: Double = 0.5
+    @Published var ghostWind: Bool = false  // use topology as wind (zero cost)
+    @Published var ghostStrength: Double = 0.5  // 0=unbiased, 1=full ratchet
     @Published var zebraFrac: Double = 0.02
     @Published var lionFrac: Double = 0.00025
     @Published var grassFrac: Double = 0.80
@@ -198,6 +200,11 @@ class SimulationEngine: ObservableObject {
         else { hexDir = 2 }                                // NW
         engine.windOverride = windEnabled ? hexDir : nil
         engine.windStrength = Float(windStrength)
+
+        // Ghost wind — topology as wind (zero cost)
+        engine.ghostWindEnabled = ghostWind
+        engine.ghostWindStrength = Float(ghostStrength)
+        engine.ghostWindDirection = hexDir  // same compass direction
 
         let cyclePos = tick % (dayLength + nightLength)
         let isDay = cyclePos < dayLength

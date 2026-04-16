@@ -249,6 +249,11 @@ public final class MetalEngine {
     /// Wind strength (0 = isotropic, 1 = fully directional). Set by DJ panel.
     public var windStrength: Float = 0.6
 
+    /// Ghost wind: use topology as wind (zero GPU cost)
+    public var ghostWindEnabled: Bool = false
+    public var ghostWindStrength: Float = 0.5  // 0=unbiased, 1=full ratchet
+    public var ghostWindDirection: UInt32 = 0  // hex dir 0-5
+
     private func encodeScent(cmdBuf: MTLCommandBuffer, scent: MTLBuffer, prev: MTLBuffer,
                              sourceType: Int8, emitStr: Float, windDir: UInt32) {
         guard let blit = cmdBuf.makeBlitCommandEncoder() else { return }
@@ -326,18 +331,24 @@ public final class MetalEngine {
         var tick = tickNumber
         var day: UInt32 = isDay ? 1 : 0
 
-        // 2. Seven color-group tick phases — SHUFFLED every tick
-        // Without shuffling, Color 0→1 steps process twice per tick,
-        // Color 6→0 steps wait. Creates phantom "chromatic advection" —
-        // information flows faster along the color gradient.
-        // Fix by Gemini Deep Think, 2026-04-15
-        var colorOrder = Array(0..<HexGrid.colorCount)
-        // Fisher-Yates shuffle using tick as seed
-        var shuffleSeed = tickNumber &* 2654435761
-        for i in stride(from: colorOrder.count - 1, through: 1, by: -1) {
-            shuffleSeed = shuffleSeed &* 1103515245 &+ 12345
-            let j = Int(shuffleSeed >> 16) % (i + 1)
-            colorOrder.swapAt(i, j)
+        // 2. Seven color-group tick phases
+        // Ghost wind: deterministic order = chromatic advection in chosen direction
+        // No ghost: shuffled order = isotropic (no phantom wind)
+        var colorOrder: [Int]
+        if ghostWindEnabled {
+            // Rotate color order by ghost direction → information flows that way
+            // Direction 0-5 maps to rotation offset in the 7-color sequence
+            let offset = Int(ghostWindDirection) % HexGrid.colorCount
+            colorOrder = (0..<HexGrid.colorCount).map { ($0 + offset) % HexGrid.colorCount }
+        } else {
+            // Fisher-Yates shuffle — isotropic
+            colorOrder = Array(0..<HexGrid.colorCount)
+            var shuffleSeed = tickNumber &* 2654435761
+            for i in stride(from: colorOrder.count - 1, through: 1, by: -1) {
+                shuffleSeed = shuffleSeed &* 1103515245 &+ 12345
+                let j = Int(shuffleSeed >> 16) % (i + 1)
+                colorOrder.swapAt(i, j)
+            }
         }
         for phase in colorOrder {
             guard let enc = cmdBuf.makeComputeCommandEncoder() else { continue }
@@ -359,6 +370,8 @@ public final class MetalEngine {
             enc.setBytes(&size, length: 4, index: 13)
             var mtn = mainTileN
             enc.setBytes(&mtn, length: 4, index: 14)  // Halo Protocol
+            var gs = ghostWindEnabled ? ghostWindStrength : Float(0)
+            enc.setBytes(&gs, length: 4, index: 15)  // Ghost wind strength
 
             let tpg = tickPipeline.maxTotalThreadsPerThreadgroup
             enc.dispatchThreadgroups(

@@ -82,6 +82,8 @@ struct DJWindow: View {
                     direction: $engine.windDirection,
                     strength: $engine.windStrength,
                     enabled: $engine.windEnabled,
+                    ghostWind: $engine.ghostWind,
+                    ghostStrength: $engine.ghostStrength,
                     isExpanded: expandedCard == "wind",
                     onTap: { withAnimation(.spring(response: 0.3)) { expandedCard = expandedCard == "wind" ? nil : "wind" } }
                 )
@@ -198,6 +200,8 @@ struct WindCard: View {
     @Binding var direction: Double
     @Binding var strength: Double
     @Binding var enabled: Bool
+    @Binding var ghostWind: Bool
+    @Binding var ghostStrength: Double
     let isExpanded: Bool
     let onTap: () -> Void
 
@@ -312,6 +316,24 @@ struct WindCard: View {
                     )
                 }
                 .frame(height: compassR * 2 + 40)
+                .padding(.horizontal, 20)
+
+                // Ghost wind — topology as wind (zero cost)
+                VStack(spacing: 6) {
+                    Toggle(isOn: $ghostWind) {
+                        HStack {
+                            Text("👻")
+                            Text("Ghost Wind")
+                                .font(.system(size: 13, design: .monospaced))
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .tint(Color(red: 0.6, green: 0.3, blue: 0.8))
+
+                    if ghostWind {
+                        ParamSlider(label: "Ghost", value: $ghostStrength, range: 0...1.0, format: "%.0f%%", multiplier: 100, color: Color(red: 0.6, green: 0.3, blue: 0.8))
+                    }
+                }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
                 .transition(.opacity.combined(with: .move(edge: .top)))

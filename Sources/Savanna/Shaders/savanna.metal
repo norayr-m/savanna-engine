@@ -168,6 +168,7 @@ kernel void tick_phase(
     constant uint32_t&    is_day      [[ buffer(12) ]],
     constant uint32_t&    group_size  [[ buffer(13) ]],
     constant uint32_t&    main_tile_n [[ buffer(14) ]],  // Halo Protocol: cells beyond this are read-only
+    constant float&       ghost_strength [[ buffer(15) ]],  // 0=fair, 1=full Morton ratchet wind
     uint                  gid         [[ thread_position_in_grid ]]
 ) {
     if (gid >= group_size) return;
@@ -319,15 +320,19 @@ kernel void tick_phase(
 
     // ── SENSE 1: HEARING (omnidirectional, r=1) ──────────
     int hear_pred = 0, hear_food = 0, hear_zebra = 0, hear_empty = 0, hear_lion = 0;
-    // Murmur3 avalanche: shatter Morton geometric signature before modulo
-    // Without this, lowest bit of Morton code = column parity → even columns
-    // always check even directions first → deterministic chiral ratchet → NW drift
-    // Fix by Gemini Deep Think, 2026-04-15
-    uint _dh = uint(node) ^ (tick * 374761393u);
-    _dh *= 0x85ebca6bu;
-    _dh ^= _dh >> 13;
-    _dh *= 0xc2b2ae35u;
-    _dh ^= _dh >> 16;
+    // Direction offset: blend between unbiased (Murmur3) and ghost wind (raw Morton ratchet)
+    // ghost_strength in buffer(15): 0 = fair, 1 = full ratchet
+    // When ghost wind is on, the Morton parity lock becomes directional wind — zero cost
+    uint _dh_fair = uint(node) ^ (tick * 374761393u);
+    _dh_fair *= 0x85ebca6bu;
+    _dh_fair ^= _dh_fair >> 13;
+    _dh_fair *= 0xc2b2ae35u;
+    _dh_fair ^= _dh_fair >> 16;
+    uint _dh_ghost = (uint(node) * 2654435761u ^ tick * 374761393u);  // the original ghost
+    // Blend: use ghost hash for (ghost_strength * 100)% of cells
+    uint _ghost_thresh = uint(ghost_strength * 100.0);
+    uint _coin = (_dh_fair >> 20) % 100u;
+    uint _dh = (_coin < _ghost_thresh) ? _dh_ghost : _dh_fair;
     uint dir_offset = _dh % 6u;
 
     for (int dd = 0; dd < 6; dd++) {
