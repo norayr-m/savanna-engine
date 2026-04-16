@@ -402,16 +402,21 @@ class MetalViewCoordinator: NSObject, MTKViewDelegate {
 
 class ClickableMTKView: MTKView {
     weak var coordinator: MetalViewCoordinator?
+    var placeTimer: Timer?
+    var lastClickEvent: NSEvent?
 
     override func scrollWheel(with event: NSEvent) {
         guard let engine = coordinator?.engine else { return }
         Task { @MainActor in
-            if event.modifierFlags.contains(.option) || abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
-                // Horizontal scroll = pan
-                engine.panX += Float(event.scrollingDeltaX) * 0.002
-                engine.panY += Float(event.scrollingDeltaY) * 0.002
+            let isTrackpad = event.phase != [] || event.momentumPhase != []
+            let shift = event.modifierFlags.contains(.shift)
+
+            if isTrackpad && shift {
+                // Shift + two finger = pan
+                engine.panX += Float(event.scrollingDeltaX) * 0.003 / Float(engine.zoom)
+                engine.panY += Float(event.scrollingDeltaY) * 0.003 / Float(engine.zoom)
             } else {
-                // Vertical scroll = zoom
+                // Normal scroll = zoom
                 let zf = 1.0 + event.scrollingDeltaY * 0.01
                 engine.zoom = max(0.1, min(50.0, engine.zoom * Double(zf)))
             }
@@ -427,21 +432,33 @@ class ClickableMTKView: MTKView {
 
     override var acceptsFirstResponder: Bool { true }
 
-    override func mouseDown(with event: NSEvent) { handleClick(event) }
+    override func mouseDown(with event: NSEvent) {
+        lastClickEvent = event
+        doPlace(event)
+        // Start repeat timer — inject every 0.3s while held
+        placeTimer?.invalidate()
+        placeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            if let e = self?.lastClickEvent { self?.doPlace(e) }
+        }
+    }
+    override func mouseUp(with event: NSEvent) {
+        placeTimer?.invalidate()
+        placeTimer = nil
+    }
     override func mouseDragged(with event: NSEvent) {
+        lastClickEvent = event
         if event.modifierFlags.contains(.command) {
-            // Cmd+drag = pan
             guard let engine = coordinator?.engine else { return }
             Task { @MainActor in
                 engine.panX += Float(event.deltaX) * 0.002
                 engine.panY -= Float(event.deltaY) * 0.002
             }
         } else {
-            handleClick(event)
+            doPlace(event)
         }
     }
 
-    private func handleClick(_ event: NSEvent) {
+    private func doPlace(_ event: NSEvent) {
         guard let coord = coordinator else { return }
         let loc = convert(event.locationInWindow, from: nil)
         let engine = coord.engine

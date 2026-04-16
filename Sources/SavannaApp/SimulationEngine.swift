@@ -137,12 +137,43 @@ class SimulationEngine: ObservableObject {
     func start() {
         guard metalEngine != nil else { return }
         isRunning = true
-        tickTimer = Timer.scheduledTimer(withTimeInterval: 1.0/120.0, repeats: true) { [weak self] _ in
-            guard let self = self, self.isRunning else { return }
-            // Run multiple ticks per timer fire for speed
-            let batch = max(1, Self.speedSleeps[self.speedTier] == 0 ? 20 : 5)
-            for _ in 0..<batch {
-                self.simulateTick()
+        tickTimer = Timer.scheduledTimer(withTimeInterval: 1.0/60.0, repeats: true) { [weak self] _ in
+            guard let self = self, self.isRunning, let engine = self.metalEngine else { return }
+
+            // Pure GPU ticks — no @Published updates, no SwiftUI redraws
+            let deadline = CFAbsoluteTimeGetCurrent() + 0.008
+            while CFAbsoluteTimeGetCurrent() < deadline && self.isRunning {
+                let cyclePos = self.tick % (self.dayLength + self.nightLength)
+                let isDay = cyclePos < self.dayLength
+
+                engine.windActive = self.windEnabled
+                engine.ghostWindEnabled = self.ghostWind
+                engine.ghostWindStrength = Float(self.ghostStrength)
+                engine.windStrength = Float(self.windStrength)
+
+                let t0 = CFAbsoluteTimeGetCurrent()
+                engine.tick(tickNumber: UInt32(self.tick), isDay: isDay)
+                let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+
+                self.totalComputeTime += ms
+                self.tickCount += 1
+                self.tick += 1
+            }
+
+            // UI update once per frame (not per tick)
+            self.simDay = self.tick / 4
+            self.simYear = Double(self.tick) / 1460.0
+            if self.tickCount > 0 {
+                self.msPerTick = self.totalComputeTime / Double(self.tickCount)
+                self.tps = 1000.0 / self.msPerTick
+                self.gcups = Double(self.cellCount) * 7.0 * self.tps / 1_000_000_000.0
+            }
+
+            // Census + graph — every 0.5 seconds, not every tick
+            if self.tick % max(1, Int(self.tps / 2)) == 0 {
+                self.updateCensus()
+                self.populationHistory.append(PopSnapshot(zebra: self.zebra, lion: self.lion, grass: self.grass))
+                if self.populationHistory.count > self.maxHistory { self.populationHistory.removeFirst() }
             }
         }
     }
@@ -299,8 +330,10 @@ class SimulationEngine: ObservableObject {
 
         let entityType: Int8 = isLion ? 3 : 2
         let energyVal: Int16 = isLion ? 4000 : 200
-        let count = isLion ? 10 : 1000
-        let radius = isLion ? 15 : 20  // lions diffuse, zebras visible herd
+        // Scale with grid size — 10M needs 10x more than 1M
+        let scale = max(1, gridSize / 1000)
+        let count = isLion ? 10 * scale : 1000 * scale
+        let radius = isLion ? 15 * scale : 20 * scale
 
         var placed = 0
         for _ in 0..<count * 3 {  // oversample to handle occupied cells
