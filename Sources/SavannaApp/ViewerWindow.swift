@@ -119,6 +119,25 @@ struct ViewerWindow: View {
                 }
             }
 
+            // Neon cell counter — bottom center
+            if engine.isRunning {
+                VStack {
+                    Spacer()
+                    VStack(spacing: 2) {
+                        Text("CELLS")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .tracking(3)
+                            .foregroundColor(neonColor(engine.cellCount).opacity(0.6))
+                        Text(engine.cellCount.formatted())
+                            .font(.system(size: 40, weight: .bold, design: .monospaced))
+                            .foregroundColor(neonColor(engine.cellCount))
+                            .shadow(color: neonColor(engine.cellCount).opacity(0.5), radius: 10)
+                            .shadow(color: neonColor(engine.cellCount).opacity(0.3), radius: 30)
+                    }
+                    .padding(.bottom, showGraph ? 140 : 50)
+                }
+            }
+
             // Time speed indicator
             if engine.showSpeedIndicator {
                 Text(engine.speedLabel)
@@ -154,6 +173,18 @@ struct ViewerWindow: View {
         default: break
         }
     }
+
+    /// Neon color by cell count magnitude — silver→gold→orange→red→pink→purple
+    func neonColor(_ count: Int) -> Color {
+        let mag = log10(Double(max(1, count)))
+        if mag < 4 { return Color(red: 0.75, green: 0.75, blue: 0.75) }       // <10K: silver
+        if mag < 5 { return Color(red: 0.77, green: 0.64, blue: 0.35) }       // 10K-100K: gold
+        if mag < 6 { return Color(red: 0.83, green: 0.52, blue: 0.23) }       // 100K-1M: orange
+        if mag < 7 { return Color(red: 0.88, green: 0.24, blue: 0.19) }       // 1M-10M: red
+        if mag < 8 { return Color(red: 0.88, green: 0.19, blue: 0.38) }       // 10M-100M: hot pink
+        if mag < 9 { return Color(red: 0.88, green: 0.13, blue: 0.63) }       // 100M-1B: magenta
+        if mag < 10 { return Color(red: 1.00, green: 0.00, blue: 1.00) }      // 1B-10B: neon
+        return Color(red: 0.67, green: 0.00, blue: 1.00) }                    // 10B+: purple
 
     func shortcutLabel(_ key: String, _ action: String) -> some View {
         HStack(spacing: 3) {

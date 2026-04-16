@@ -105,8 +105,8 @@ struct DJWindow: View {
 
                 // Quick scenes — small pills
                 HStack(spacing: 8) {
-                    ScenePill("🔴 Haboob") { engine.zebraFrac = 0.05; engine.lionFrac = 0.001; engine.grassFrac = 0.85; engine.windEnabled = true; engine.reset(); engine.start() }
-                    ScenePill("🦴 Bone") { engine.zebraFrac = 0.08; engine.lionFrac = 0.004; engine.grassFrac = 0.80; engine.windEnabled = false; engine.reset(); engine.start() }
+                    ScenePill("🔴 Haboob") { engine.zebraFrac = 0.10; engine.lionFrac = 0.005; engine.grassFrac = 0.80; engine.windEnabled = true; engine.reset(); engine.start() }
+                    ScenePill("🦴 Bone") { engine.zebraFrac = 0.15; engine.lionFrac = 0.008; engine.grassFrac = 0.75; engine.windEnabled = false; engine.reset(); engine.start() }
                     ScenePill("⬜ Fire") { engine.zebraFrac = 0.02; engine.lionFrac = 0.00025; engine.grassFrac = 0.80; engine.windEnabled = false; engine.reset(); engine.start() }
                 }
                 .padding(.horizontal, 20)
@@ -201,27 +201,27 @@ struct WindCard: View {
     let isExpanded: Bool
     let onTap: () -> Void
 
+    let windBlue = Color(red: 0.40, green: 0.60, blue: 0.80)
+    let compassR: CGFloat = 70  // compass radius
+
     var body: some View {
         VStack(spacing: 0) {
             Button(action: onTap) {
                 HStack(spacing: 14) {
                     Text("💨")
                         .font(.system(size: 40))
-
                     VStack(alignment: .leading, spacing: 2) {
                         Text("WIND")
                             .font(.system(size: 14, weight: .bold, design: .monospaced))
-                            .foregroundColor(Color(red: 0.40, green: 0.60, blue: 0.80))
+                            .foregroundColor(windBlue)
                             .tracking(2)
-                        Text(enabled ? compassLabel(direction) : "Calm")
+                        Text(enabled ? "\(compassLabel(direction)) \(Int(strength * 100))%" : "Calm")
                             .font(.system(size: 24, weight: .bold, design: .monospaced))
                             .foregroundColor(.white)
                     }
-
                     Spacer()
-
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .foregroundColor(Color.blue.opacity(0.5))
+                        .foregroundColor(windBlue.opacity(0.5))
                         .font(.system(size: 14))
                 }
                 .padding(.horizontal, 20)
@@ -230,59 +230,88 @@ struct WindCard: View {
             .buttonStyle(.plain)
 
             if isExpanded {
-                VStack(spacing: 12) {
-                    Toggle(isOn: $enabled) {
-                        Text("Wind active")
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundColor(.gray)
-                    }
-                    .tint(Color(red: 0.40, green: 0.60, blue: 0.80))
-
-                    // Interactive compass
+                // One-click compass: click inside = set direction+strength, click outside = calm
+                GeometryReader { geo in
+                    let center = CGPoint(x: geo.size.width / 2, y: compassR + 10)
                     ZStack {
+                        // Outer ring — click outside = calm
                         Circle()
-                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-                            .frame(width: 120, height: 120)
+                            .stroke(enabled ? windBlue.opacity(0.3) : Color.gray.opacity(0.15), lineWidth: 2)
+                            .frame(width: compassR * 2, height: compassR * 2)
+
+                        // Inner globe fill
+                        Circle()
+                            .fill(enabled ? windBlue.opacity(0.05) : Color.gray.opacity(0.03))
+                            .frame(width: compassR * 2, height: compassR * 2)
 
                         // Direction labels
-                        ForEach(Array(["N","E","S","W"].enumerated()), id: \.offset) { idx, label in
-                            let angle = Double(idx) * .pi / 2 - .pi / 2
+                        ForEach(Array(["N","NE","E","SE","S","SW","W","NW"].enumerated()), id: \.offset) { idx, label in
+                            let a = Double(idx) * .pi / 4 - .pi / 2
                             Text(label)
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                .foregroundColor(.gray)
-                                .offset(x: cos(angle) * 52, y: sin(angle) * 52)
+                                .font(.system(size: idx % 2 == 0 ? 13 : 10, weight: .semibold, design: .monospaced))
+                                .foregroundColor(enabled ? windBlue.opacity(0.7) : .gray.opacity(0.3))
+                                .position(x: center.x + cos(a) * (compassR + 16),
+                                          y: center.y + sin(a) * (compassR + 16))
                         }
 
-                        // Arrow
-                        let arrowAngle = direction - .pi / 2
-                        Path { path in
-                            path.move(to: CGPoint(x: 60, y: 60))
-                            path.addLine(to: CGPoint(
-                                x: 60 + cos(arrowAngle) * 45 * strength,
-                                y: 60 + sin(arrowAngle) * 45 * strength
-                            ))
-                        }
-                        .stroke(Color(red: 0.40, green: 0.60, blue: 0.80), lineWidth: 3)
-                        .frame(width: 120, height: 120)
+                        // Wind arrow
+                        if enabled {
+                            let arrowAngle = direction - .pi / 2
+                            let arrowLen = compassR * 0.8 * CGFloat(strength)
+                            Path { path in
+                                path.move(to: center)
+                                path.addLine(to: CGPoint(
+                                    x: center.x + cos(arrowAngle) * arrowLen,
+                                    y: center.y + sin(arrowAngle) * arrowLen
+                                ))
+                            }
+                            .stroke(windBlue, lineWidth: 3)
 
+                            // Arrow head
+                            Circle()
+                                .fill(windBlue)
+                                .frame(width: 10, height: 10)
+                                .position(x: center.x + cos(arrowAngle) * arrowLen,
+                                          y: center.y + sin(arrowAngle) * arrowLen)
+                        }
+
+                        // Center dot
                         Circle()
-                            .fill(Color(red: 0.40, green: 0.60, blue: 0.80))
+                            .fill(enabled ? windBlue : .gray.opacity(0.3))
                             .frame(width: 8, height: 8)
+                            .position(center)
+
+                        // "CALM" label when off
+                        if !enabled {
+                            Text("CALM")
+                                .font(.system(size: 16, weight: .bold, design: .monospaced))
+                                .foregroundColor(.gray.opacity(0.4))
+                                .position(center)
+                        }
                     }
+                    .contentShape(Rectangle())
                     .gesture(
-                        DragGesture()
+                        DragGesture(minimumDistance: 0)
                             .onChanged { value in
-                                let center = CGPoint(x: 60, y: 60)
                                 let dx = value.location.x - center.x
                                 let dy = value.location.y - center.y
-                                direction = atan2(dy, dx) + .pi / 2
-                                if direction < 0 { direction += 2 * .pi }
-                                strength = min(1.0, sqrt(dx*dx + dy*dy) / 50)
+                                let dist = sqrt(dx * dx + dy * dy)
+
+                                if dist > compassR {
+                                    // Outside compass = calm
+                                    enabled = false
+                                    strength = 0
+                                } else {
+                                    // Inside compass = set direction + magnitude
+                                    enabled = true
+                                    direction = atan2(dy, dx) + .pi / 2
+                                    if direction < 0 { direction += 2 * .pi }
+                                    strength = min(1.0, Double(dist / compassR))
+                                }
                             }
                     )
-
-                    ParamSlider(label: "Strength", value: $strength, range: 0...1.0, format: "%.0f%%", multiplier: 100, color: Color(red: 0.40, green: 0.60, blue: 0.80))
                 }
+                .frame(height: compassR * 2 + 40)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -293,14 +322,15 @@ struct WindCard: View {
                 .fill(Color.white.opacity(isExpanded ? 0.04 : 0.02))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.blue.opacity(isExpanded ? 0.3 : 0.1), lineWidth: 1)
+                        .stroke(windBlue.opacity(isExpanded ? 0.3 : 0.1), lineWidth: 1)
                 )
         )
         .padding(.horizontal, 16)
     }
 
     func compassLabel(_ rad: Double) -> String {
-        let deg = rad * 180 / .pi
+        var deg = rad * 180 / .pi
+        if deg < 0 { deg += 360 }
         let dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
         let idx = Int(round(deg / 45)) % 8
         return dirs[idx < 0 ? idx + 8 : idx]

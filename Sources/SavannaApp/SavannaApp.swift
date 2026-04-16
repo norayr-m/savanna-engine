@@ -11,12 +11,21 @@ import Savanna
 @main
 struct SavannaApp: App {
     @StateObject private var engine = SimulationEngine()
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         // Window 1: Viewer — Metal rendering, fullscreen on external display
         Window("Savanna — Viewer", id: "viewer") {
             ViewerWindow(engine: engine)
                 .frame(minWidth: 800, minHeight: 600)
+                .onAppear {
+                    // Open all companion windows on first launch
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        openWindow(id: "dj")
+                        openWindow(id: "simulator")
+                        openWindow(id: "telemetry")
+                    }
+                }
         }
         .defaultSize(width: 1200, height: 900)
 

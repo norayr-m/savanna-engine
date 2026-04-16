@@ -79,6 +79,16 @@ class SimulationEngine: ObservableObject {
 
     init() {
         loadScenarios()
+        // Auto-start with 1M Serengeti — no clicks needed
+        zebraFrac = 0.04
+        lionFrac = 0.002
+        grassFrac = 0.85
+        windEnabled = true
+        // Delay to let SwiftUI/Metal view initialize first
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.setup(cells: 1_000_000)
+            self?.start()
+        }
     }
 
     func setup(cells: Int) {
@@ -125,9 +135,12 @@ class SimulationEngine: ObservableObject {
     func start() {
         guard metalEngine != nil else { return }
         isRunning = true
-        tickTimer = Timer.scheduledTimer(withTimeInterval: 0.001, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.simulateTick()
+        tickTimer = Timer.scheduledTimer(withTimeInterval: 1.0/120.0, repeats: true) { [weak self] _ in
+            guard let self = self, self.isRunning else { return }
+            // Run multiple ticks per timer fire for speed
+            let batch = max(1, Self.speedSleeps[self.speedTier] == 0 ? 20 : 5)
+            for _ in 0..<batch {
+                self.simulateTick()
             }
         }
     }
@@ -170,10 +183,19 @@ class SimulationEngine: ObservableObject {
 
         // Push wind settings to Metal engine EVERY tick
         engine.windActive = windEnabled
-        // Always override — the DJ panel IS the wind source, not seasonal auto
-        // Convert radians (0-2π) to hex direction (0-5)
+        // Convert compass radians to hex direction
+        // Compass: 0=N, π/2=E, π=S, 3π/2=W (clockwise from north)
         // Hex dirs: 0=NE, 1=N, 2=NW, 3=SW, 4=S, 5=SE
-        let hexDir = UInt32(round(windDirection / (2.0 * .pi) * 6.0)) % 6
+        // Map: N→1, NE→0, E→5, SE→5, S→4, SW→3, W→2, NW→2
+        var deg = windDirection * 180.0 / .pi
+        if deg < 0 { deg += 360 }
+        let hexDir: UInt32
+        if deg < 30 || deg >= 330 { hexDir = 1 }       // N
+        else if deg < 90 { hexDir = 0 }                  // NE
+        else if deg < 150 { hexDir = 5 }                  // SE
+        else if deg < 210 { hexDir = 4 }                  // S
+        else if deg < 270 { hexDir = 3 }                  // SW
+        else { hexDir = 2 }                                // NW
         engine.windOverride = windEnabled ? hexDir : nil
         engine.windStrength = Float(windStrength)
 
@@ -194,19 +216,20 @@ class SimulationEngine: ObservableObject {
         tps = 1000.0 / msPerTick
         gcups = Double(cellCount) * 7.0 * tps / 1_000_000_000.0
 
-        // Update census every 20 ticks
-        if tick % 20 == 0 {
+        // Update census every 100 ticks (was 20 — SwiftUI redraws are expensive)
+        if tick % 100 == 0 {
             updateCensus()
-            // Sample population for graph
+        }
+
+        // Sample population for graph every 200 ticks (slow — avoids array churn)
+        if tick % 200 == 0 {
             populationHistory.append(PopSnapshot(zebra: zebra, lion: lion, grass: grass))
             if populationHistory.count > maxHistory {
                 populationHistory.removeFirst()
             }
         }
 
-        // Speed control
-        let sleepMs = Self.speedSleeps[speedTier]
-        if sleepMs > 0 { usleep(sleepMs * 1000) }
+        // Speed control handled by Timer batch size
     }
 
     private func updateCensus() {
@@ -269,8 +292,8 @@ class SimulationEngine: ObservableObject {
 
         let entityType: Int8 = isLion ? 3 : 2
         let energyVal: Int16 = isLion ? 4000 : 200
-        let count = isLion ? 10 : 100
-        let radius = isLion ? 15 : 5  // lions diffuse, zebras tight
+        let count = isLion ? 10 : 1000
+        let radius = isLion ? 15 : 20  // lions diffuse, zebras visible herd
 
         var placed = 0
         for _ in 0..<count * 3 {  // oversample to handle occupied cells

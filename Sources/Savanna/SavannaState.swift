@@ -165,10 +165,20 @@ public struct SavannaState {
         let cooldownZ = 365  // must match REPRO_COOLDOWN_ZEBRA in metal
         let reproAgeZ = 730  // must match REPRO_AGE_ZEBRA in metal
         let maxAgeZ   = 32000
-        // Zebras: scattered uniformly across grid
+        // Zebras: ONE massive blob covering ~1/7 of the grid
+        // Random center, tight Gaussian cluster — visible from full zoom
+        let blobCx = width / 4 + Int(rng.next() % UInt64(width / 2))
+        let blobCy = height / 4 + Int(rng.next() % UInt64(height / 2))
+        let blobRadius = Int(Double(width) / 3.0)  // ~1/9 of area
+
         for _ in 0..<zebraTotal {
-            let x = Int(rng.next() % UInt64(width))
-            let y = Int(rng.next() % UInt64(height))
+            // Gaussian via sum of 2 uniforms
+            let dx = Int(rng.next() % UInt64(blobRadius)) - blobRadius/2
+                 + Int(rng.next() % UInt64(blobRadius)) - blobRadius/2
+            let dy = Int(rng.next() % UInt64(blobRadius)) - blobRadius/2
+                 + Int(rng.next() % UInt64(blobRadius)) - blobRadius/2
+            let x = min(max(0, blobCx + dx), width - 1)
+            let y = min(max(0, blobCy + dy), height - 1)
             let m = mi(x, y)
             if entity[m] == Entity.empty.rawValue || entity[m] == Entity.grass.rawValue {
                 entity[m] = Entity.zebra.rawValue
