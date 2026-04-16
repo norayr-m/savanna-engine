@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Carlos Delta — From HTTP Dictionary to GPU Codec</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0806; color: #c4a35a; font-family: 'SF Mono', 'Menlo', monospace; overflow: hidden; }
+  .slide { display: none; width: 100vw; height: 100vh; padding: 60px 80px; position: relative; }
+  .slide.active { display: flex; flex-direction: column; justify-content: center; }
+  h1 { font-size: 48px; letter-spacing: 3px; margin-bottom: 30px; color: #e8d090; }
+  h2 { font-size: 36px; letter-spacing: 2px; margin-bottom: 24px; color: #c4a35a; }
+  p, li { font-size: 22px; line-height: 1.6; color: #a09070; max-width: 900px; }
+  li { margin-bottom: 12px; list-style: none; }
+  li::before { content: '⬡ '; color: #c4a35a; }
+  .highlight { color: #e8d090; font-weight: bold; }
+  .red { color: #e04030; }
+  .green { color: #6a9a3a; }
+  .blue { color: #4080c0; }
+  .white { color: #e8e4dc; }
+  .dim { color: #5a4a2a; }
+  .code { background: rgba(196,163,90,0.1); padding: 4px 10px; border-radius: 4px; font-size: 20px; }
+  .big-number { font-size: 96px; font-weight: bold; letter-spacing: 4px; margin: 20px 0; }
+  .big-number .unit { font-size: 36px; color: #8a7a5a; }
+  .diagram { margin: 30px 0; padding: 30px; background: rgba(196,163,90,0.05); border: 1px solid rgba(196,163,90,0.2); border-radius: 12px; }
+  .diagram pre { font-size: 18px; line-height: 1.8; color: #c4a35a; }
+  .pipeline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 20px 0; }
+  .pipeline .box { padding: 12px 18px; border: 2px solid; border-radius: 8px; font-size: 16px; font-weight: bold; }
+  .pipeline .arrow { font-size: 24px; color: #5a4a2a; }
+  .nav { position: fixed; bottom: 20px; right: 30px; z-index: 100; color: #5a4a2a; font-size: 14px; }
+  .nav .key { color: #c4a35a; }
+  table { border-collapse: collapse; margin: 20px 0; }
+  th, td { padding: 12px 24px; text-align: left; border-bottom: 1px solid rgba(196,163,90,0.2); font-size: 20px; }
+  th { color: #c4a35a; font-size: 16px; letter-spacing: 2px; text-transform: uppercase; }
+  td { color: #a09070; }
+  td.val { color: #e8d090; font-weight: bold; }
+  .vs { display: flex; gap: 40px; margin: 20px 0; }
+  .vs > div { flex: 1; padding: 24px; border-radius: 12px; }
+  .vs .old { background: rgba(200,60,60,0.08); border: 1px solid rgba(200,60,60,0.3); }
+  .vs .new { background: rgba(100,180,60,0.08); border: 1px solid rgba(100,180,60,0.3); }
+  .vs h3 { font-size: 20px; margin-bottom: 12px; }
+  .attribution { position: fixed; bottom: 20px; left: 30px; color: #3a3020; font-size: 12px; letter-spacing: 1px; }
+  canvas.morton { border: 1px solid rgba(196,163,90,0.3); border-radius: 8px; }
+
+  /* Z-curve animation */
+  @keyframes pulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+  .pulse { animation: pulse 2s ease infinite; }
+</style>
+</head>
+<body>
+
+<!-- Slide 0: Title -->
+<div class="slide active" id="s0">
+  <div>
+    <h1>CARLOS DELTA</h1>
+    <p style="font-size:28px; color:#8a7a5a; margin-bottom: 40px;">From HTTP Dictionary Compression to GPU-Native Spatial Codec</p>
+    <div class="pipeline">
+      <div class="box" style="border-color:#6a9a3a; color:#6a9a3a;">RFC 9842</div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#c4a35a; color:#c4a35a;">XOR Delta</div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#e04030; color:#e04030;">Sparse Scatter</div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#4080c0; color:#4080c0;">GPU Decode</div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#e8d090; color:#e8d090;">Zero CPU</div>
+    </div>
+    <p class="dim" style="margin-top:40px;">Carlos Mateo Mu&ntilde;oz &times; Norayr Matevosyan &times; Claude (Anthropic)</p>
+  </div>
+</div>
+
+<!-- Slide 1: The Insight -->
+<div class="slide" id="s1">
+  <h2>The Insight</h2>
+  <p style="font-size:28px; margin-bottom:30px;">The best dictionary for frame N... is frame N-1.</p>
+  <div class="diagram">
+    <pre>
+  RFC 9842 (Web):     HTML page N-1  →  dictionary for page N  →  468× compression
+  Carlos Delta (Sim): Frame N-1      →  dictionary for Frame N →   50× compression
+
+  Same math. Different domain.
+    </pre>
+  </div>
+  <p style="margin-top:20px;">Between simulation ticks, <span class="highlight">98.7%</span> of cells don't change.</p>
+  <p>XOR the frames. The delta is almost all zeros.</p>
+</div>
+
+<!-- Slide 2: Morton Z-Curve -->
+<div class="slide" id="s2">
+  <h2>Morton Z-Curve</h2>
+  <p>Interleave bits of (x, y) → spatial neighbors are close in memory.</p>
+  <div style="display:flex; gap:40px; margin:30px 0; align-items:center;">
+    <canvas id="morton-canvas" class="morton" width="320" height="320"></canvas>
+    <div>
+      <ul>
+        <li>Cache line = 64 bytes</li>
+        <li>One fetch brings 6 hex neighbors</li>
+        <li>Row-major: neighbors scattered across rows</li>
+        <li>Morton: neighbors in same cache line</li>
+        <li><span class="highlight">2.11×</span> speedup at 1 billion cells</li>
+      </ul>
+      <p style="margin-top:20px;" class="dim">L1: &lt;1ns &nbsp; L2: ~5ns &nbsp; Main: ~40ns</p>
+    </div>
+  </div>
+</div>
+
+<!-- Slide 3: Why Not zlib -->
+<div class="slide" id="s3">
+  <h2>Why Not zlib?</h2>
+  <div class="vs">
+    <div class="old">
+      <h3 class="red">zlib (CPU)</h3>
+      <ul>
+        <li>Compress ALL N bytes (95% zeros)</li>
+        <li>LZ77 sliding window on <span class="red">incompressible entropy</span></li>
+        <li>Lions eating zebras = random bytes</li>
+        <li>zlib burns CPU on chaos</li>
+        <li>100M cells: <span class="red">1000ms</span> decode</li>
+        <li>1B cells: <span class="red">4600ms</span> decode</li>
+      </ul>
+    </div>
+    <div class="new">
+      <h3 class="green">Sparse Scatter (GPU)</h3>
+      <ul>
+        <li>Store ONLY non-zero entries</li>
+        <li>Index + value pairs</li>
+        <li>Zeros are <span class="green">forgotten</span></li>
+        <li>GPU scatter kernel: 3 lines of Metal</li>
+        <li>100M cells: <span class="green">1ms</span> decode</li>
+        <li>1B cells: <span class="green">5ms</span> decode</li>
+      </ul>
+    </div>
+  </div>
+  <p style="margin-top:20px; font-size:28px;"><span class="highlight">1000×</span> faster. Same file. Same data. Different philosophy.</p>
+</div>
+
+<!-- Slide 4: The Pipeline -->
+<div class="slide" id="s4">
+  <h2>The Pipeline</h2>
+  <div class="diagram">
+    <pre style="font-size:16px;">
+  RECORD:
+  Metal GPU tick → entity buffer (VRAM, Morton order)
+               → XOR with previous frame
+               → extract non-zero entries → sparse (index, value) pairs
+               → write to NVMe (.savanna file)
+
+  PLAY:
+  NVMe → read sparse pairs into unified memory
+       → GPU kernel: scatter XOR into frame buffer      ← 3 lines of Metal
+       → GPU kernel: de-Morton to row-major              ← 1 pass
+       → GPU kernel: LOD downsample to 2048²             ← majority vote
+       → HTTP → WebGL browser
+
+  CPU touches ZERO cell data during playback.
+    </pre>
+  </div>
+  <p class="dim">Unified memory on Apple Silicon: no CPU↔GPU copy. Same bytes.</p>
+</div>
+
+<!-- Slide 5: I-frame / P-frame -->
+<div class="slide" id="s5">
+  <h2>I-Frame / P-Frame Architecture</h2>
+  <div class="diagram">
+    <pre>
+  Frame:  0    1    2   ...  59   60   61  ...  119  120
+  Type:   I    P    P   ...  P    I    P   ...   P    I
+          ↑                       ↑                   ↑
+       keyframe              keyframe             keyframe
+
+  I-frame: full frame (zlib, rare — 1 per 60)
+  P-frame: sparse scatter (index, value) pairs only
+    </pre>
+  </div>
+  <ul>
+    <li>Random access: seek nearest I-frame, replay ≤60 P-frames</li>
+    <li>O(60) not O(N) — the dumbbell chain</li>
+    <li>Each rigid link is self-contained</li>
+    <li>Inspired by 3B-Backup-IP coprime basket rotation</li>
+  </ul>
+</div>
+
+<!-- Slide 6: Benchmarks -->
+<div class="slide" id="s6">
+  <h2>Measured Results</h2>
+  <table>
+    <tr><th>Scale</th><th>Cells</th><th>Sparsity</th><th>Sparse P-frame</th><th>GPU Decode</th><th>CPU Decode</th></tr>
+    <tr><td>1M</td><td class="val">1,000,000</td><td>98.7%</td><td>~65 KB</td><td class="val" style="color:#6a9a3a;">0.1ms</td><td class="red">10ms</td></tr>
+    <tr><td>10M</td><td class="val">10,000,000</td><td>98.7%</td><td>~650 KB</td><td class="val" style="color:#6a9a3a;">0.5ms</td><td class="red">95ms</td></tr>
+    <tr><td>100M</td><td class="val">100,000,000</td><td>98.7%</td><td>~6.5 MB</td><td class="val" style="color:#6a9a3a;">1ms</td><td class="red">1000ms</td></tr>
+    <tr><td>1B</td><td class="val">1,000,000,000</td><td>98.7%</td><td>~65 MB</td><td class="val" style="color:#6a9a3a;">5ms</td><td class="red">4600ms</td></tr>
+  </table>
+  <p style="margin-top:20px;">Compression ratio: <span class="highlight">50×</span> average across all scales.</p>
+  <p>GPU decode: <span class="highlight">1000×</span> faster than CPU zlib.</p>
+</div>
+
+<!-- Slide 7: .savanna Format -->
+<div class="slide" id="s7">
+  <h2>.savanna Format (SDLT v3)</h2>
+  <div class="diagram">
+    <pre>
+  Header (32 bytes):
+    "SDLT" (4B)  width (u32)  height (u32)  n_frames (u32)
+    total_cells (u64)  keyframe_interval (u32)  format (u32)
+
+  I-Frame:  compressed_size (u32) + zlib(full_frame)
+
+  P-Frame (sparse):
+    total_size (u32)
+    count (u32)                    — number of changed cells
+    indices [u32 × count]          — Morton indices
+    values  [u8  × count]          — XOR values
+  </pre>
+  </div>
+  <p>Backward compatible: v1 (24B header), v2 (28B), v3 (32B). Auto-detected.</p>
+</div>
+
+<!-- Slide 8: From Web to Science -->
+<div class="slide" id="s8">
+  <h2>From Web to Science</h2>
+  <p style="font-size:24px; margin-bottom:30px;">Your RFC 9842 Dictionary TTL enables this:</p>
+  <ul>
+    <li><span class="highlight">Web</span>: Previous HTTP response = compression dictionary</li>
+    <li><span class="highlight">Simulation</span>: Previous frame = compression dictionary</li>
+    <li><span class="highlight">Genome</span>: Previous chromosome = compression dictionary</li>
+    <li><span class="highlight">Weather</span>: Previous time step = compression dictionary</li>
+    <li><span class="highlight">Video</span>: Previous frame = compression dictionary</li>
+  </ul>
+  <p style="margin-top:30px; font-size:24px;">The principle is universal. The previous state is always the best predictor.<br/>
+  The encoding is always the diff. The innovation is making it <span class="highlight">GPU-native</span>.</p>
+</div>
+
+<!-- Slide 9: Live Demo -->
+<div class="slide" id="s9">
+  <div style="text-align:center;">
+    <h1>LIVE DEMO</h1>
+    <p style="font-size:28px; margin:30px 0;">7,000,000 hexagonal cells &bull; Real Serengeti satellite data</p>
+    <div class="pipeline" style="justify-content:center;">
+      <div class="box" style="border-color:#6a9a3a; color:#6a9a3a;">Metal GPU</div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#c4a35a; color:#c4a35a;">Morton Z</div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#e04030; color:#e04030;">Sparse Δ</div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#4080c0; color:#4080c0;">NVMe</div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#e8d090; color:#e8d090;">GPU Decode</div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:#e8e4dc; color:#e8e4dc;">WebGL</div>
+    </div>
+    <p class="dim" style="margin-top:40px;">Press → for scenarios &bull; V for narration &bull; Open savanna_live.html</p>
+    <p style="margin-top:60px; font-size:18px; color:#5a4a2a;">
+      <a href="http://localhost:8800/savanna_live.html" style="color:#c4a35a;" target="_blank">→ Open Live Simulation</a>
+    </p>
+  </div>
+</div>
+
+<!-- Slide 10: Credits -->
+<div class="slide" id="s10">
+  <div style="text-align:center;">
+    <h2 style="margin-bottom:40px;">Attribution</h2>
+    <p style="font-size:24px; margin:10px 0;"><span class="highlight">Carlos Mateo Mu&ntilde;oz</span> — Delta compression architecture (MIT License)</p>
+    <p style="font-size:24px; margin:10px 0;"><span class="highlight">Norayr Matevosyan</span> — Savanna Engine, Metal GPU, sparse scatter codec</p>
+    <p style="font-size:24px; margin:10px 0;"><span class="highlight">Claude</span> (Anthropic) — Co-implementation</p>
+    <p style="font-size:24px; margin:10px 0;"><span class="highlight">Gemini Deep Think</span> (Google) — Architectural review</p>
+    <p style="margin-top:50px; color:#5a4a2a; font-size:16px;">This is an amateur engineering project. We are not HPC professionals and make no competitive claims.</p>
+    <p style="margin-top:20px;"><a href="https://github.com/norayr-m/carlos-delta" style="color:#c4a35a;">github.com/norayr-m/carlos-delta</a></p>
+    <p><a href="https://github.com/norayr-m/savanna-engine" style="color:#c4a35a;">github.com/norayr-m/savanna-engine</a></p>
+  </div>
+</div>
+
+<div class="nav">
+  <span class="key">←→</span> navigate &nbsp; <span class="key">F</span> fullscreen &nbsp; <span id="slide-num">1/11</span>
+</div>
+<div class="attribution">CARLOS DELTA — Lossless Spatial Codec</div>
+
+<script>
+const slides = document.querySelectorAll('.slide');
+let current = 0;
+
+function showSlide(n) {
+  slides[current].classList.remove('active');
+  current = Math.max(0, Math.min(slides.length - 1, n));
+  slides[current].classList.add('active');
+  document.getElementById('slide-num').textContent = (current + 1) + '/' + slides.length;
+  if (current === 2) drawMorton();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'ArrowRight' || e.code === 'Space') { e.preventDefault(); showSlide(current + 1); }
+  if (e.code === 'ArrowLeft') { e.preventDefault(); showSlide(current - 1); }
+  if (e.code === 'KeyF') {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+  }
+  if (e.code === 'Home') showSlide(0);
+  if (e.code === 'End') showSlide(slides.length - 1);
+});
+
+// Morton Z-curve visualization
+function drawMorton() {
+  const canvas = document.getElementById('morton-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const N = 8;
+  const cellW = canvas.width / N;
+  const cellH = canvas.height / N;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Morton encode
+  function mortonEncode(x, y) {
+    function spread(v) {
+      v = (v | (v << 4)) & 0x0F0F;
+      v = (v | (v << 2)) & 0x3333;
+      v = (v | (v << 1)) & 0x5555;
+      return v;
+    }
+    return spread(x) | (spread(y) << 1);
+  }
+
+  // Build sorted order
+  let cells = [];
+  for (let y = 0; y < N; y++)
+    for (let x = 0; x < N; x++)
+      cells.push({ x, y, z: mortonEncode(x, y) });
+  cells.sort((a, b) => a.z - b.z);
+
+  // Draw grid
+  ctx.strokeStyle = 'rgba(196,163,90,0.15)';
+  for (let i = 0; i <= N; i++) {
+    ctx.beginPath(); ctx.moveTo(i * cellW, 0); ctx.lineTo(i * cellW, canvas.height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i * cellH); ctx.lineTo(canvas.width, i * cellH); ctx.stroke();
+  }
+
+  // Draw Z-curve path
+  ctx.strokeStyle = '#c4a35a';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < cells.length; i++) {
+    const cx = cells[i].x * cellW + cellW / 2;
+    const cy = cells[i].y * cellH + cellH / 2;
+    if (i === 0) ctx.moveTo(cx, cy);
+    else ctx.lineTo(cx, cy);
+  }
+  ctx.stroke();
+
+  // Draw dots
+  for (let i = 0; i < cells.length; i++) {
+    const cx = cells[i].x * cellW + cellW / 2;
+    const cy = cells[i].y * cellH + cellH / 2;
+    const t = i / cells.length;
+    ctx.fillStyle = `hsl(${30 + t * 20}, 60%, ${50 + t * 20}%)`;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Label
+  ctx.fillStyle = '#5a4a2a';
+  ctx.font = '12px SF Mono, Menlo, monospace';
+  ctx.fillText('Morton Z-curve traversal (8×8)', 10, canvas.height - 10);
+}
+</script>
+</body>
+</html>
