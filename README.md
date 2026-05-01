@@ -21,7 +21,9 @@ GPU Simulation → Carlos Delta Encoder → .savanna file → Carlos Delta Decod
 
 Full architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
 
-[**→ Savanna v0.6 (YouTube)**](https://youtu.be/HfWeZmX1qEo) | [**→ Swift Infection (YouTube)**](https://youtu.be/rvI2pJnFyGg) | [**→ Swift Haboob (YouTube)**](https://youtu.be/soCJtueiz24) | [**→ 100B Cell Playback (YouTube)**](https://youtu.be/6QiU7kUD3Os) | [**→ 1B Cell Playback (5.4 MB)**](https://norayr-m.github.io/savanna-engine/playback.html) | [**→ Interactive Presentation**](https://norayr-m.github.io/savanna-engine/) | [**→ About**](https://norayr-m.github.io/savanna-engine/about.html) | [**→ Benchmark**](BENCHMARK.md) | [**→ Morton Z-Curve**](https://norayr-m.github.io/savanna-engine/morton_charts.html)
+[**→ White paper**](https://norayr-m.github.io/savanna-engine/whitepaper.html) | [**→ Savanna v0.6 (YouTube)**](https://youtu.be/HfWeZmX1qEo) | [**→ Swift Infection (YouTube)**](https://youtu.be/rvI2pJnFyGg) | [**→ Swift Haboob (YouTube)**](https://youtu.be/soCJtueiz24) | [**→ 100B Cell Playback (YouTube)**](https://youtu.be/6QiU7kUD3Os) | [**→ 1B Cell Playback (5.4 MB)**](https://norayr-m.github.io/savanna-engine/playback.html) | [**→ Interactive Presentation**](https://norayr-m.github.io/savanna-engine/) | [**→ About**](https://norayr-m.github.io/savanna-engine/about.html) | [**→ Benchmark**](BENCHMARK.md) | [**→ Morton Z-Curve**](https://norayr-m.github.io/savanna-engine/morton_charts.html)
+
+> **NEW.** [The architecture, build approach, and overcomes white paper](https://norayr-m.github.io/savanna-engine/whitepaper.html) covers the engineering teardown: hex 7-coloring (Molloy + Salavatipour 2005), Murmur3 avalanche fix for the NW ghost wind, shuffled chromatic dispatch, Type II satiation, CFL clamp, trophic max-pooling, Atto-Fox, Lévy-α tunability, pride mitosis vs zebra birthday window. [Markdown source](whitepaper.md).
 
 ## What This Is
 
