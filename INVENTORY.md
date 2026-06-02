@@ -28,7 +28,7 @@
 | File | Purpose |
 |------|---------|
 | `Package.swift` | Swift Package Manager config. Targets: Savanna (lib), SavannaCLI (exe). |
-| `LICENSE` | GPL v3. |
+| `LICENSE` | Apache 2.0. |
 | `.gitignore` | Build artifacts, scenarios (too large for git). |
 
 ## Documentation

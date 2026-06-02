@@ -1,6 +1,6 @@
 # Savanna Engine
 
-> **Note:** This is an amateur engineering project. We are not HPC professionals and make no competitive claims. We built a simulation, the performance surprised us, and we share the numbers because they might be useful. We are certain there are errors — if you find one, please open an issue. That is the point of open source. GPL v3.
+> **Note:** This is an amateur engineering project. We are not HPC professionals and make no competitive claims. We built a simulation, the performance surprised us, and we share the numbers because they might be useful. We are certain there are errors — if you find one, please open an issue. That is the point of open source. Apache 2.0.
 
 **Ultra-Scale Spatial Lattice Engine — 15.8 GCUPS on Apple M5 Max**
 
@@ -224,7 +224,7 @@ SavannaEngine/
 ├── voice_mixer.html                  # TTS voice blending tool
 ├── presentation.html                 # Narrated slides (local audio)
 ├── tour.sh                          # Voice-narrated tour script
-├── LICENSE                          # GPL v3
+├── LICENSE                          # Apache 2.0
 └── README.md                        # This file
 ```
 
@@ -300,7 +300,7 @@ Full report: [Carlos_Delta_Compression_Report.pdf](Carlos_Delta_Compression_Repo
 
 ## License
 
-GPL v3. See [LICENSE](LICENSE).
+Apache 2.0. See [LICENSE](LICENSE).
 
 ## Authors
 

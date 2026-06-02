@@ -2,7 +2,7 @@
 
 > **Humble disclaimer.** Amateur engineering project. We are not HPC professionals and make no competitive claims. The numbers come from one M5 Max laptop, no controlled benchmark, no peer review. Errors are likely. The work is openly in progress; this paper is honest about what is solved, what is wired but not validated, and what was attempted and is not yet there.
 
-GPLv3.
+Apache 2.0.
 
 ---
 
@@ -239,4 +239,4 @@ Visualization and code co-authored with Claude (Anthropic).
 
 > **Humble disclaimer.** Amateur engineering project. We are not HPC professionals and make no competitive claims. Numbers speak; ego doesn't. Errors likely.
 
-GPLv3. See [`LICENSE`](LICENSE).
+Apache 2.0. See [`LICENSE`](LICENSE).
