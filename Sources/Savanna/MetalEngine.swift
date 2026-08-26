@@ -1,7 +1,7 @@
 /// MetalEngine — GPU compute with three senses + scent diffusion.
 ///
-/// Per tick: 3 scent diffusions + 4 color phases + grass growth + census.
-/// 8 kernel dispatches total per tick. All in one MTLCommandBuffer.
+/// Per tick: 4 scent diffusions + 7 color phases + grass growth (day only) + census.
+/// 13 kernel dispatches per tick during day, 12 at night. All in one MTLCommandBuffer.
 
 import Metal
 import Foundation
