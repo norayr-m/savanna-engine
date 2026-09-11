@@ -2,9 +2,9 @@
 
 > **Note:** This is an amateur engineering project. We are not HPC professionals and make no competitive claims. We built a simulation, the performance surprised us, and we share the numbers because they might be useful. We are certain there are errors — if you find one, please open an issue. That is the point of open source. Apache 2.0.
 
-**Ultra-Scale Spatial Lattice Engine — 15.8 GCUPS on Apple M5 Max**
+**Large-Scale Spatial Lattice Engine — 15.8 GCUPS on Apple M5 Max**
 
-An ultra-scale spatial computation engine running on Apple Metal, featuring lock-free, atomic-free parallel entity updates (census uses atomics for population counters).
+A large-scale spatial computation engine running on Apple Metal, featuring lock-free, atomic-free parallel entity updates (census uses atomics for population counters).
 
 **15.8 GCUPS** (15.8 billion cell-updates per second) peak at 64M cells on Apple M5 Max with 128 GB unified memory. Morton Z-curve memory layout. 10-run validated, low variance (0.5–5% coefficient of variation). Pure GPU compute: 0.58 ms/tick at 1M cells (1,722 tps). See [BENCHMARK.md](BENCHMARK.md) for full methodology — what is measured, what is excluded, and how to reproduce.
 
@@ -29,7 +29,7 @@ Full architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
 
 A million hexagonal cells, each a node in a graph. Five data channels per node. Four diffusion fields. Thirteen GPU kernel dispatches per tick. The graph is coloured with seven colours such that no two same-coloured nodes share any neighbour — enabling fully parallel, lock-free updates with zero atomic operations.
 
-The simulation models a predator-prey ecosystem (grass → zebra → lion), but the underlying engine is an **ultra-scale spatial lattice engine**. Any computation that reads local neighbours and writes a local result can run at this speed on any colourable graph.
+The simulation models a predator-prey ecosystem (grass → zebra → lion), but the underlying engine is a **general spatial lattice engine**. Any computation that reads local neighbours and writes a local result can run at this speed on any colourable graph.
 
 ## Performance
 
@@ -279,7 +279,7 @@ Inspired by [Carlos Mateo Muñoz](https://github.com/carlosmateo10/delta-compres
 
 20 GB raw recording → **408 MB** compressed. Lossless. The ratio improves as the ecosystem stabilizes.
 
-**Scaling projection:**
+**Scaling: one measured point, the rest projected.** A 100-billion-cell run was performed once, tiled (100 tiles × 5 frames, 122 min wall clock — see [about](https://norayr-m.github.io/savanna-engine/about.html)); the throughput benchmark in BENCHMARK.md covers up to 64M cells. The compression rows below beyond 1B are projections from the 1B measurement, not measurements:
 
 | Scale | Raw/frame | Delta/frame | 20 frames total |
 |-------|-----------|-------------|-----------------|

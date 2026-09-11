@@ -43,7 +43,7 @@ stall on first dispatch). Mean ± standard deviation reported.
 
 Variance <1% standard deviation at all scales. Morton Z-curve memory layout.
 
-Peak throughput: **15.8 GCUPS** at 64M cells. See [BENCHMARK_MORTON.md](BENCHMARK_MORTON.md) for full comparison.
+Peak throughput: **15.8 GCUPS** at 64M cells. (Largest single run: 100B cells, tiled 100 × 1B, 5 frames, 122 min wall clock — an existence run, not a throughput measurement; it is not part of the numbers below.) See [BENCHMARK_MORTON.md](BENCHMARK_MORTON.md) for full comparison.
 
 ## Scaling
 

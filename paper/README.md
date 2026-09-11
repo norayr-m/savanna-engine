@@ -64,7 +64,7 @@ The **grazing front** Γ(t) = ∂{g > 0} ∩ ∂{g = 0} is a free boundary separ
 
 satisfies an **almost monotonicity formula** in the sense of Caffarelli-Jerison-Kenig, adapted for the fractional setting.
 
-This connects directly to the almost monotonicity formulas for elliptic operators with variable coefficients (Matevosyan & Petrosyan, CPAM 2011).
+This connects directly to the almost monotonicity formulas for elliptic operators with variable coefficients (Comm. Pure Appl. Math., 2011).
 
 ## Open Questions
 
@@ -91,8 +91,8 @@ This connects directly to the almost monotonicity formulas for elliptic operator
 
 ## Connection to Prior Work
 
-- **Matevosyan & Petrosyan (2011)**, "Almost monotonicity formulas for elliptic and parabolic operators." *CPAM.* — The almost monotonicity formula for the grazing front energy functional.
-- **Matevosyan & Petrosyan (2011)**, "Two-phase semilinear free boundary problem with a degenerate phase." *Calc. Var. PDE.* — The grass-empty free boundary with degenerate (zero-growth) phase.
+- "Almost monotonicity formulas for elliptic and parabolic operators with variable coefficients." *Comm. Pure Appl. Math.*, 2011. — The almost monotonicity formula for the grazing front energy functional.
+- "A two-phase semilinear free boundary problem with a degenerate phase." *Calc. Var. PDE*, 2011. — The grass-empty free boundary with degenerate (zero-growth) phase.
 - **Molloy & Salavatipour (2005)** — Distance-2 chromatic number of hex lattice = 7 (our GPU parallelism).
 - **Rosenzweig & MacArthur (1963)** — Predator-prey with Type II functional response.
 - **Caffarelli, Roquejoffre, Sire (2010)** — Fractional Laplacian free boundary problems.

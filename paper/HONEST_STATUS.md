@@ -16,7 +16,7 @@
 
 6. **Grazing front as a free boundary in PDE sense**: ⚠️ NOT ESTABLISHED. I have not found any paper that formally identifies the grazed/ungrazed interface in a spatial ecology model as a free boundary problem. The visual analogy is suggestive but NOT proven. The grazing front moves, yes, but it may not satisfy the regularity or energy conditions required for free boundary theory.
 
-7. **Almost monotonicity at the grazing front**: ⚠️ PURE SPECULATION. I projected Matevosyan & Petrosyan's tool onto this system because it's the author's prior work. There is NO paper connecting almost monotonicity formulas to ecological interfaces. The energy functional I wrote down (Φ(r) = ...) is not derived — it's invented by analogy.
+7. **Almost monotonicity at the grazing front**: ⚠️ PURE SPECULATION. I projected the author's 2011 almost-monotonicity tool onto this system because it is prior work. There is NO paper connecting almost monotonicity formulas to ecological interfaces. The energy functional I wrote down (Φ(r) = ...) is not derived — it's invented by analogy.
 
 8. **DLA morphology of grazing fronts**: ⚠️ OBSERVED but not characterized. The fractal boundaries are visually similar to DLA, but I have not measured the fractal dimension or compared to DLA universality class. Could be a different universality class entirely.
 
@@ -27,7 +27,7 @@
 ## What IS novel (potentially):
 
 - **Combining ALL of these**: fractional diffusion + free boundary + excitable medium + nonlocal aggregation in ONE system. Each ingredient exists in the literature separately. The combination does not, as far as I know.
-- **Computational scale**: 100 billion cells is unprecedented for an agent-based ecological model. Most papers use 10^4 to 10^6.
+- **Computational scale**: 100 billion cells is larger than any agent-based ecological model we found in the literature we checked (typical range 10^4 to 10^6). Run once, tiled; see about page.
 - **The question itself**: "What PDE do you get when you homogenize a hex-lattice predator-prey system with Lévy flights and ternary states?" — this specific question may not have been asked before.
 
 ## The honest paper:
