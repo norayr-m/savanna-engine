@@ -11,7 +11,7 @@ We derive the continuum limit of a discrete predator-prey ecosystem on a hexagon
 3. **Ternary refractory dynamics** producing excitable medium behavior (BZ-reaction topology)
 4. **Nonlocal aggregation terms** from pride cohesion/splitting mechanics
 
-We present computational evidence from 107 billion cell simulations on a single Apple M5 Max laptop (15.8 GCUPS, Morton Z-curve memory layout) showing fractal grazing boundaries with DLA-like morphology, stable zebra carrying capacity with excitable wavefronts, and long-lived predator-prey coexistence under specific parameter regimes.
+We present computational evidence from simulations on a single Apple M5 Max laptop — throughput measured at 15.8 GCUPS at 64M cells over 10 runs with Morton Z-curve memory layout, and a single tiled existence run of 107 billion cells (100 tiles, 5 frames, 122 min wall clock, not a throughput measurement) — showing fractal grazing boundaries with DLA-like morphology, stable zebra carrying capacity with excitable wavefronts, and long-lived predator-prey coexistence under specific parameter regimes.
 
 ## The System
 
