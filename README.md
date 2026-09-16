@@ -1,6 +1,6 @@
 # Savanna Engine
 
-> **Note:** This is an amateur engineering project. We are not HPC professionals and make no competitive claims. We built a simulation, the performance surprised us, and we share the numbers because they might be useful. We are certain there are errors — if you find one, please open an issue. That is the point of open source. Apache 2.0.
+> **Note:** This is an amateur engineering project. The numbers here come from a single machine and a single family of runs, with no controlled benchmark: reproduce them with the script in this repository rather than taking them on trust. We built a simulation, the performance surprised us, and we share the numbers because they might be useful. We are certain there are errors — if you find one, please open an issue. That is the point of open source. Apache 2.0.
 
 **Large-Scale Spatial Lattice Engine — 15.8 GCUPS on Apple M5 Max**
 

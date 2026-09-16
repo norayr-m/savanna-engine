@@ -1,6 +1,6 @@
 # Savanna Engine — Architecture, Build Approach, and Overcomes
 
-> **Humble disclaimer.** Amateur engineering project. We are not HPC professionals and make no competitive claims. The numbers come from one M5 Max laptop, no controlled benchmark, no peer review. Errors are likely. The work is openly in progress; this paper is honest about what is solved, what is wired but not validated, and what was attempted and is not yet there.
+> **Humble disclaimer.** Amateur engineering project. The numbers here come from a single machine and a single family of runs, with no controlled benchmark: reproduce them with the script in this repository rather than taking them on trust. The numbers come from one M5 Max laptop, no controlled benchmark, no peer review. Errors are likely. The work is openly in progress; this paper is honest about what is solved, what is wired but not validated, and what was attempted and is not yet there.
 
 Apache 2.0.
 
@@ -237,6 +237,6 @@ Visualization and code co-authored with Claude (Anthropic).
 
 ---
 
-> **Humble disclaimer.** Amateur engineering project. We are not HPC professionals and make no competitive claims. Numbers speak; ego doesn't. Errors likely.
+> **Humble disclaimer.** Amateur engineering project. The numbers here come from a single machine and a single family of runs, with no controlled benchmark: reproduce them with the script in this repository rather than taking them on trust. Numbers speak; ego doesn't. Errors likely.
 
 Apache 2.0. See [`LICENSE`](LICENSE).
