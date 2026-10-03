@@ -2,11 +2,11 @@
 
 > **Note:** This is an amateur engineering project. The numbers here come from a single machine and a single family of runs, with no controlled benchmark: reproduce them with the script in this repository rather than taking them on trust. We built a simulation, the performance surprised us, and we share the numbers because they might be useful. We are certain there are errors — if you find one, please open an issue. That is the point of open source. Apache 2.0.
 
-**Large-Scale Spatial Lattice Engine — 15.8 GCUPS on Apple M5 Max**
+**Large-Scale Spatial Lattice Engine — 2.25 billion cell-steps per second on one M5 Max laptop**
 
 A large-scale spatial computation engine running on Apple Metal, featuring lock-free, atomic-free parallel entity updates (census uses atomics for population counters).
 
-**15.8 GCUPS** (15.8 billion cell-updates per second) peak at 64M cells on Apple M5 Max with 128 GB unified memory. Morton Z-curve memory layout. 10-run validated, low variance (0.5–5% coefficient of variation). Pure GPU compute: 0.58 ms/tick at 1M cells (1,722 tps). See [BENCHMARK.md](BENCHMARK.md) for full methodology — what is measured, what is excluded, and how to reproduce.
+**2.25 billion cell-steps per second** at 64M cells on one Apple M5 Max laptop with 128 GB unified memory. A cell-step is one cell advanced one full simulation tick (64M cells × 33.6 ticks/s). Each tick makes seven passes over the grid; counted per pass, that is 15.8 billion pass-updates per second (BENCHMARK.md gives both). Morton Z-curve memory layout. 10-run validated, low variance (0.5–5% coefficient of variation). Pure GPU compute: 0.58 ms/tick at 1M cells (1,722 tps). See [BENCHMARK.md](BENCHMARK.md) for full methodology — what is measured, what is excluded, and how to reproduce.
 
 > The biology is the test workload. The engine is a spatial lattice compute machine.
 
@@ -38,7 +38,7 @@ The simulation models a predator-prey ecosystem (grass → zebra → lion), but 
 | Grid | 1,048,576 nodes (1024×1024 hex) |
 | Channels | 5 per node + 4 scent fields = 23 MB state |
 | Compute | 0.58 ms per tick (13 kernel dispatches) |
-| Throughput | **15.8 billion** cell-updates/sec (peak at 64M) |
+| Throughput | **2.25 billion** cell-steps/sec (peak at 64M; one cell, one full tick) |
 | Simulation rate | 1,722 tps at 1M cells (GPU compute only) |
 | Display rate | 60-120 fps (vsync) |
 | State bandwidth | 38 GB/sec |
@@ -258,7 +258,7 @@ Under the current thermodynamic constraints (Type II satiation, ternary metaboli
 
 **We challenge the theoretical ecology community** to find the parameter basin — or functional response modification — that produces stable oscillations on this discrete hex lattice with asynchronous chromatic Gauss-Seidel updates.
 
-The engine runs at 15.8 GCUPS. The biology is the open problem.
+The engine runs at 2.25 billion cell-steps per second. The biology is the open problem.
 
 ## Lossless Compression with "Carlos Deltas"
 

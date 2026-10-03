@@ -27,7 +27,7 @@ Each tick = 13 Metal compute kernel dispatches:
 - 1× grass growth (all cells)
 - 1× census (all cells, atomic counters)
 
-**GCUPS** = cells × 7 effective passes (4 scent + 1 entity + 1 grass + 1 census) × ticks/sec.
+**GCUPS** in the tables below counts *pass-updates*: cells × 7 effective passes (4 scent + 1 entity + 1 grass + 1 census) × ticks/sec. A **cell-step**, one cell advanced one full tick, is cells × ticks/sec, seven times smaller: 2.25 billion per second at 64M cells. The README quotes cell-steps.
 
 10 runs per grid size. 5-tick warmup per run (eliminates GPU pipeline
 stall on first dispatch). Mean ± standard deviation reported.
@@ -43,7 +43,7 @@ stall on first dispatch). Mean ± standard deviation reported.
 
 Variance <1% standard deviation at all scales. Morton Z-curve memory layout.
 
-Peak throughput: **15.8 GCUPS** at 64M cells. (Largest single run: 100B cells, tiled 100 × 1B, 5 frames, 122 min wall clock — an existence run, not a throughput measurement; it is not part of the numbers below.) See [BENCHMARK_MORTON.md](BENCHMARK_MORTON.md) for full comparison.
+Peak throughput: **2.25 billion cell-steps per second** (15.8 GCUPS counted per pass) at 64M cells. (Largest single run: 100B cells, tiled 100 × 1B, 5 frames, 122 min wall clock — an existence run, not a throughput measurement; it is not part of the numbers below.) See [BENCHMARK_MORTON.md](BENCHMARK_MORTON.md) for full comparison.
 
 ## Scaling
 
